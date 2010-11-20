@@ -1,0 +1,39 @@
+#!/usr/bin/env perl -T
+# $Id$
+
+use strict;
+use Getopt::Std;
+
+$Getopt::Std::STANDARD_HELP_VERSION=1;
+our $VERSION = 0.1;
+
+my %options=();
+getopts("hf:nv", \%options);
+
+if ($options{h}) {
+    HELP_MESSAGE();
+    exit 0;
+}
+
+if (!$options{f} and @ARGV == 0) {
+    HELP_MESSAGE();
+    exit 1;
+}
+
+#die "Need to run as root.\n" unless ($< == 0);
+
+exit 0;
+
+sub HELP_MESSAGE {
+    print "Usage: rawsuserdel [-hnv] [-f file | username...]\n";
+    print "   -h     Prints this message and exits\n";
+    print "   -f     Use file as input\n";
+    print "   -n     Test mode\n";
+    print "   -v     Be verbose\n";
+}
+
+sub VERSION_MESSAGE {
+    print "rawsuserdel version $VERSION\n";
+}
+
+# vi: set tabstop=4 shiftwidth=4 expandtab si ai nu:
