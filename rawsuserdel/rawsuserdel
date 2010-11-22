@@ -7,7 +7,17 @@ use Getopt::Std;
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
 
-my %options = () ;
+################################
+# BEGIN USER-CHANGEABLE CONFIG
+################################
+
+my $min_uid = 500;
+
+################################
+# END USER-CHANGEABLE CONFIG
+################################
+
+my %options = ();
 getopts("hf:nvV", \%options);
 
 if ($options{h}) {
@@ -28,6 +38,17 @@ if (!$options{f} and @ARGV == 0) {
 }
 
 #die "Need to run as root.\n" unless ($< == 0);
+
+my %passwd = ();
+setpwent();
+while (my ($user, $uid) = (getpwent())[0,2]) {
+    $passwd{$user} = 1  unless $uid < $min_uid or $user =~ /no(body|access)/;
+}
+endpwent();
+
+foreach my $key (keys %passwd) {
+    print "User: $key\n";
+}
 
 exit 0;
 
