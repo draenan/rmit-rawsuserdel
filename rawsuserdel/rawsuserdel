@@ -2,23 +2,16 @@
 # $Id$
 
 use strict;
+use File::Basename;
 use Getopt::Std;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
 
-################################
-# BEGIN USER-CHANGEABLE CONFIG
-################################
-
 my $min_uid = 500;
 
-################################
-# END USER-CHANGEABLE CONFIG
-################################
-
 my %options = ();
-getopts("hf:nvV", \%options);
+getopts("c:hf:nvV", \%options);
 
 if ($options{h}) {
     VERSION_MESSAGE();
@@ -39,6 +32,26 @@ if (!$options{f} and @ARGV == 0) {
 
 #die "Need to run as root.\n" unless ($< == 0);
 
+my $cmd_dir  = dirname("$0");
+my $cmd_name = basename("$0");
+my $conf;
+
+if ($options{c}) {
+    $conf = $options{c};
+}
+else {
+    find_conf();
+}
+
+die "ERROR: Could not find config file.\n" unless defined $conf;
+
+my %config = ();
+#if ( -e "$0".".cf" ) {
+if ( -e $conf ) {
+    print "Exists\n";
+}
+exit 0;
+
 my %passwd = ();
 setpwent();
 while (my ($user, $uid) = (getpwent())[0,2]) {
@@ -52,13 +65,28 @@ foreach my $key (keys %passwd) {
 
 exit 0;
 
+sub find_conf {
+    if (-e "$0".".cf" ) {
+        $conf = "$0".".cf";
+    }
+    else {
+        foreach my $file ( ("/usr/local/etc/$cmd_name.cf", "/etc/$cmd_name.cf") ) {
+            if (-e $file) {
+                $conf = $file;
+            }
+        }
+   }
+}
+
+
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-f file | username...]\n";
+    print "Usage: rawsuserdel [-hnvV] [-c file] [-f file | username...]\n";
     print "   -h, --help     Prints this message and exits\n";
-    print "   -f             Use file as input\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
     print "   -V, --version  Prints version message and exits\n";
+    print "   -c             Get configuration from file\n";
+    print "   -f             Get username(s) from file\n";
 }
 
 sub VERSION_MESSAGE {
