@@ -8,8 +8,6 @@ use Getopt::Std;
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
 
-my $min_uid = 500;
-
 my %options = ();
 getopts("c:hf:nvV", \%options);
 
@@ -32,52 +30,70 @@ if (!$options{f} and @ARGV == 0) {
 
 #die "Need to run as root.\n" unless ($< == 0);
 
-my $cmd_dir  = dirname("$0");
-my $cmd_name = basename("$0");
-my $conf;
+my $conf_file;
 
 if ($options{c}) {
-    $conf = $options{c};
+    $conf_file = $options{c};
 }
 else {
     find_conf();
 }
 
-die "ERROR: Could not find config file.\n" unless defined $conf;
+die "ERROR: Could not find config file.\n" unless defined $conf_file;
 
-my %config = ();
-#if ( -e "$0".".cf" ) {
-if ( -e $conf ) {
-    print "Exists\n";
-}
-exit 0;
+my %config = (
+    min_uid   => "500",
+    db_host   => "localhost",
+    db_name   => "example",
+    db_user   => "admin",
+    db_passwd => "s3kr1t",
+);
+
+parse_config($conf_file, \%config);
 
 my %passwd = ();
 setpwent();
 while (my ($user, $uid) = (getpwent())[0,2]) {
-    $passwd{$user} = 1  unless $uid < $min_uid or $user =~ /no(body|access)/;
+    $passwd{$user} = 1  unless $uid < $config{"min_uid"} or $user =~ /no(body|access)/;
 }
 endpwent();
 
-foreach my $key (keys %passwd) {
-    print "User: $key\n";
-}
-
 exit 0;
+
+#### Functions.
 
 sub find_conf {
     if (-e "$0".".cf" ) {
-        $conf = "$0".".cf";
+        $conf_file = "$0".".cf";
     }
     else {
+        my $cmd_name = basename("$0");
         foreach my $file ( ("/usr/local/etc/$cmd_name.cf", "/etc/$cmd_name.cf") ) {
             if (-e $file) {
-                $conf = $file;
+                $conf_file = $file;
             }
         }
    }
 }
 
+sub parse_config {
+    my ($file, $config) = @_;
+    my $line;
+    open FILE, "<", $file or die "ERROR: Could not open $file: $!";
+    while (<FILE>) {
+        $line = $_;
+        chomp ($line);
+        $line =~ s/^\s+//;
+        $line =~ s/\s+$//;
+        if ($line !~ /^#/ and $line ne "") { 
+            $line =~ s/^(\S*)\s+=\s+(\S*)$/\1=\2/;
+            $line =~ s/[\'\"]//g;
+            my ($key, @value) = split /=/, $line;
+            $$config{$key} = join '=', @value;
+        }
+    }
+    close FILE;
+}
 
 sub HELP_MESSAGE {
     print "Usage: rawsuserdel [-hnvV] [-c file] [-f file | username...]\n";

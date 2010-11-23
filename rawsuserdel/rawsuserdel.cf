@@ -1,0 +1,33 @@
+# $Id$
+#
+# rawsuserdel.cf
+#
+# This file can be located in one of (in order of preference):
+#
+#   - Same directory as rawsuserdel
+#   - /usr/local/etc
+#   - /etc
+#
+# Alternatively, it can go anywhere provided the "-c" option
+# is used when invoking the script.
+#
+# Use variable = value.  Quotes optional.  Commented values represent
+# defaults.
+#
+
+#
+# min_uid
+#
+# Ignore requests to delete accounts with UIDs lower than this
+# value.  Note nobody, nobody4, and noaccess users are left alone.
+#
+#min_uid   = 500
+
+#
+# Database connection details.  Change as appropriate.
+#
+#db_host   = "localhost"
+#db_name   = "example"
+#db_user   = "admin"
+#db_passwd = "s3kr1t"
+
