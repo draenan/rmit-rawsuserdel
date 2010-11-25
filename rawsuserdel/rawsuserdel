@@ -8,6 +8,9 @@ use Getopt::Std;
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
 
+delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
+$ENV{PATH} = "/bin:/usr/bin";
+
 my %options = ();
 getopts("c:hf:nvV", \%options);
 
@@ -54,9 +57,36 @@ parse_config($conf_file, \%config);
 my %passwd = ();
 setpwent();
 while (my ($user, $uid) = (getpwent())[0,2]) {
-    $passwd{$user} = 1  unless $uid < $config{"min_uid"} or $user =~ /no(body|access)/;
+    $passwd{$user} = 1  unless $uid < $config{min_uid} or $user =~ /^(?:root|no(?:body|access))/;
 }
 endpwent();
+
+my @users = ();
+if ($options{f}) {
+    open FILE, "<", $options{f} or die "ERROR: Could not open $options{f}\n";
+    @users = <FILE>;
+    close FILE;
+}
+else {
+    push (@users, @ARGV);
+}
+
+foreach my $user (@users) {
+    if ($user =~ /^([\w^_^-]+)$/) {
+        $user = $1;
+        if (!$passwd{$user}) {
+            print "Will not delete user \"$user\": protected, or not present.\n" if defined $options{v};
+        }
+        else {
+            print "This is where I'd delete user \"$user\"\n";
+        }
+    }
+    else {
+        print "Ignoring invalid username \"$user\"\n" if defined $options{v};
+        next;
+    }
+}
+
 
 exit 0;
 
@@ -79,7 +109,7 @@ sub find_conf {
 sub parse_config {
     my ($file, $config) = @_;
     my $line;
-    open FILE, "<", $file or die "ERROR: Could not open $file: $!";
+    open FILE, "<", $file or die "ERROR: Could not open $file\n";
     while (<FILE>) {
         $line = $_;
         chomp ($line);
@@ -87,7 +117,7 @@ sub parse_config {
         $line =~ s/\s+$//;
         if ($line !~ /^#/ and $line ne "") { 
             $line =~ s/^(\S*)\s+=\s+(\S*)$/\1=\2/;
-            $line =~ s/[\'\"]//g;
+            $line =~ s/^(.*)=[\'\"](.*)[\'\"]$/\1=\2/;
             my ($key, @value) = split /=/, $line;
             $$config{$key} = join '=', @value;
         }

@@ -16,10 +16,9 @@
 #
 
 #
-# min_uid
-#
-# Ignore requests to delete accounts with UIDs lower than this
-# value.  Note nobody, nobody4, and noaccess users are left alone.
+# min_uid -  Ignore requests to delete accounts with UIDs lower than this
+#            value.  Note that nobody, nobody4, and noaccess users are left
+#            alone regardless of this setting.
 #
 #min_uid   = 500
 
