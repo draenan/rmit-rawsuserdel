@@ -12,7 +12,7 @@ delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
 
 my %options = ();
-getopts("c:hf:nvV", \%options);
+getopts("c:hf:ntuvV", \%options);
 
 if ($options{h}) {
     VERSION_MESSAGE();
@@ -25,7 +25,7 @@ if ($options{V}) {
     exit 0;
 }
 
-if (!$options{f} and @ARGV == 0) {
+if ( (!$options{f} and @ARGV == 0) or ($options{t} and $options{u}) ) {
     VERSION_MESSAGE();
     HELP_MESSAGE();
     exit 1;
@@ -39,7 +39,7 @@ if ($options{c}) {
     $conf_file = $options{c};
 }
 else {
-    find_conf();
+    $conf_file = find_conf();
 }
 
 die "ERROR: Could not find config file.\n" unless defined $conf_file;
@@ -55,38 +55,17 @@ my %config = (
 parse_config($conf_file, \%config);
 
 my %passwd = ();
-setpwent();
-while (my ($user, $uid) = (getpwent())[0,2]) {
-    $passwd{$user} = 1  unless $uid < $config{min_uid} or $user =~ /^(?:root|no(?:body|access))/;
-}
-endpwent();
+hash_passwd(\%passwd);
 
 my @users = ();
-if ($options{f}) {
-    open FILE, "<", $options{f} or die "ERROR: Could not open $options{f}\n";
-    @users = <FILE>;
-    close FILE;
-}
-else {
-    push (@users, @ARGV);
-}
+get_users(\@users);
 
-foreach my $user (@users) {
-    if ($user =~ /^([\w^_^-]+)$/) {
-        $user = $1;
-        if (!$passwd{$user}) {
-            print "Will not delete user \"$user\": protected, or not present.\n" if defined $options{v};
-        }
-        else {
-            print "This is where I'd delete user \"$user\"\n";
-        }
-    }
-    else {
-        print "Ignoring invalid username \"$user\"\n" if defined $options{v};
-        next;
-    }
-}
+my %victims = ();
+get_victims(\%victims, \@users);
 
+foreach my $key (keys %victims) {
+    print "$key: @{ $victims{$key} }\n";
+}
 
 exit 0;
 
@@ -94,13 +73,13 @@ exit 0;
 
 sub find_conf {
     if (-e "$0".".cf" ) {
-        $conf_file = "$0".".cf";
+        return "$0".".cf";
     }
     else {
         my $cmd_name = basename("$0");
-        foreach my $file ( ("/usr/local/etc/$cmd_name.cf", "/etc/$cmd_name.cf") ) {
-            if (-e $file) {
-                $conf_file = $file;
+        foreach my $default_file ( ("/usr/local/etc/$cmd_name.cf", "/etc/$cmd_name.cf") ) {
+            if (-e $default_file) {
+                return $default_file;
             }
         }
    }
@@ -125,12 +104,58 @@ sub parse_config {
     close FILE;
 }
 
+sub hash_passwd {
+    my ($passwd) = @_;
+    setpwent();
+    while (my ($user, $uid) = (getpwent())[0,2]) {
+        $$passwd{$user} = 1  unless $uid < $config{min_uid} or $user =~ /^(?:root|no(?:body|access))/;
+    }
+    endpwent();
+}
+
+sub get_users {
+    my ($users) = @_;
+    if ($options{f}) {
+        open FILE, "<", $options{f} or die "ERROR: Could not open $options{f}\n";
+        @$users = <FILE>;
+        close FILE;
+    }
+    else {
+        push @$users, @ARGV;
+    }
+}
+
+sub get_victims {
+    my ($victims, $users) = @_;
+    foreach my $user (@$users) {
+        if ($user =~ /^([\w^_^-]+)$/) {
+            $user = $1;
+            if ($options{u} or !$options{t}) {
+                if (!$passwd{$user}) {
+                    print "Will not delete account for user \"$user\": protected, or not present.\n" if defined $options{v};
+                }
+                else {
+                    push @{ $$victims{accounts} }, $user;
+                }
+            }
+            if (!$options{u}) {
+                push @{ $$victims{tables} }, $user;
+            }
+        }
+        else {
+            print "Ignoring invalid username \"$user\"\n" if defined $options{v};
+        }
+    }
+}
+
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-c file] [-f file | username...]\n";
+    print "Usage: rawsuserdel [-hnvV] [-t | -u] [-c file] [-f file | username...]\n";
     print "   -h, --help     Prints this message and exits\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
     print "   -V, --version  Prints version message and exits\n";
+    print "   -t             Delete database tables only, leave user alone\n";
+    print "   -u             Delete user only, leave database tables alone\n";
     print "   -c             Get configuration from file\n";
     print "   -f             Get username(s) from file\n";
 }
