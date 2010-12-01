@@ -128,7 +128,8 @@ sub get_users {
 sub get_victims {
     my ($victims, $users) = @_;
     foreach my $user (@$users) {
-        if ($user =~ /^([\w^_^-]+)$/) {
+        #if ($user =~ /^([\w]+[\w\d-]*)$/) {
+        if ($user =~ /^([A-Za-z_]+[\w-]*)$/) {
             $user = $1;
             if ($options{u} or !$options{t}) {
                 if (!$passwd{$user}) {
