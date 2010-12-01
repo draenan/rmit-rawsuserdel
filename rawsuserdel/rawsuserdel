@@ -58,28 +58,32 @@ my %config = (
 
 parse_config($conf_file, \%config);
 
-if ($options{h}) {
-    $config{db_host} = $options{h};
-}
+if (!$options{U}) {
+    if ($options{h}) {
+        $config{db_host} = $options{h};
+    }
 
-if ($options{d}) {
-    $config{db_name} = $options{d};
-}
+    if ($options{d}) {
+        $config{db_name} = $options{d};
+    }
 
-if ($options{u}) {
-    $config{db_user} = $options{u};
-    print "Enter password for \"$config{db_name}\" user \"$config{db_user}\": ";
-    system ("stty -echo");
-    $config{db_passwd} = <STDIN>; 
-    chomp($config{db_passwd});
-    system ("stty echo");
-    print "\n";
-}
-
+    if ($options{u}) {
+        $config{db_user} = $options{u};
+        print "Enter password for \"$config{db_name}\" user \"$config{db_user}\": ";
+        system ("stty -echo");
+        $config{db_passwd} = <STDIN>; 
+        chomp($config{db_passwd});
+        system ("stty echo");
+        print "\n";
+    }  
 print "db_host:   $config{db_host}\n";
 print "db_name:   $config{db_name}\n";
 print "db_user:   $config{db_user}\n";
 print "db_passwd: $config{db_passwd}\n";
+}
+else {
+    print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
+}
 
 my %passwd = ();
 hash_passwd(\%passwd);
