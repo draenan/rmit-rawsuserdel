@@ -1,6 +1,6 @@
 #!/usr/bin/env perl -T
 # $Id$
-
+$|++;
 use strict;
 use File::Basename;
 use Getopt::Std;
@@ -12,9 +12,13 @@ delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
 
 my %options = ();
-getopts("c:hf:ntuvV", \%options);
+if (!getopts("c:h:nTUvVd:u:f:", \%options)) {
+    exit 1;
+}
 
-if ($options{h}) {
+my $num_keys = keys(%options);
+
+if ($options{h} and $num_keys == 1 and @ARGV == 0) {
     VERSION_MESSAGE();
     HELP_MESSAGE();
     exit 0;
@@ -25,7 +29,7 @@ if ($options{V}) {
     exit 0;
 }
 
-if ( (!$options{f} and @ARGV == 0) or ($options{t} and $options{u}) ) {
+if ( (!$options{f} and @ARGV == 0) or ($options{T} and $options{U}) ) {
     VERSION_MESSAGE();
     HELP_MESSAGE();
     exit 1;
@@ -54,6 +58,29 @@ my %config = (
 
 parse_config($conf_file, \%config);
 
+if ($options{h}) {
+    $config{db_host} = $options{h};
+}
+
+if ($options{d}) {
+    $config{db_name} = $options{d};
+}
+
+if ($options{u}) {
+    $config{db_user} = $options{u};
+    print "Enter password for \"$config{db_name}\" user \"$config{db_user}\": ";
+    system ("stty -echo");
+    $config{db_passwd} = <STDIN>; 
+    chomp($config{db_passwd});
+    system ("stty echo");
+    print "\n";
+}
+
+print "db_host:   $config{db_host}\n";
+print "db_name:   $config{db_name}\n";
+print "db_user:   $config{db_user}\n";
+print "db_passwd: $config{db_passwd}\n";
+
 my %passwd = ();
 hash_passwd(\%passwd);
 
@@ -63,9 +90,14 @@ get_users(\@users);
 my %victims = ();
 get_victims(\%victims, \@users);
 
-foreach my $key (keys %victims) {
-    print "$key: @{ $victims{$key} }\n";
-}
+$options{n} = 1;
+
+delete_users(\$victims{accounts}) unless defined $options{T};
+delete_tables(\$victims{tables}) unless defined $options{U};
+
+#foreach my $key (keys %victims) {
+#    print "$key: @{ $victims{$key} }\n";
+#}
 
 exit 0;
 
@@ -128,10 +160,9 @@ sub get_users {
 sub get_victims {
     my ($victims, $users) = @_;
     foreach my $user (@$users) {
-        #if ($user =~ /^([\w]+[\w\d-]*)$/) {
         if ($user =~ /^([A-Za-z_]+[\w-]*)$/) {
             $user = $1;
-            if ($options{u} or !$options{t}) {
+            if ($options{U} or !$options{T}) {
                 if (!$passwd{$user}) {
                     print "Will not delete account for user \"$user\": protected, or not present.\n" if defined $options{v};
                 }
@@ -139,7 +170,7 @@ sub get_victims {
                     push @{ $$victims{accounts} }, $user;
                 }
             }
-            if (!$options{u}) {
+            if (!$options{U}) {
                 push @{ $$victims{tables} }, $user;
             }
         }
@@ -149,15 +180,51 @@ sub get_victims {
     }
 }
 
+sub delete_users {
+    my ($users) = @_;
+    foreach my $user (@{$$users}) {
+        my @userdel_cmd = (
+            "/usr/sbin/userdel",
+            "$user",
+        );
+        my @zfs_cmd = (
+            "/usr/sbin/zfs",
+            "destroy",
+            "-r",
+            "rawshomepool/$user",
+        );    
+        if (!$options{n}) {
+            print "DELETE $user!!\n";
+        }
+        else {
+            if (defined $options{v}) {
+                print "TEST: Execute \"@userdel_cmd\"\n";
+                print "TEST: Execute \"@zfs_cmd\"\n";
+            }
+        }
+    }
+
+}
+
+sub delete_tables {
+    my ($tables) = @_;
+    print "Will drop tables with prefixes: @{$$tables}\n";
+}
+
+
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-t | -u] [-c file] [-f file | username...]\n";
-    print "   -h, --help     Prints this message and exits\n";
+    print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \\\n";
+    print "                   [-u dbuser -p dbpassword] [-f file | username...]\n\n";
+    print "   (-h), --help   Prints this message and exits (-h only if sole argument)\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
     print "   -V, --version  Prints version message and exits\n";
-    print "   -t             Delete database tables only, leave user alone\n";
-    print "   -u             Delete user only, leave database tables alone\n";
+    print "   -T             Delete database tables only, leave user alone\n";
+    print "   -U             Delete user only, leave database tables alone\n";
     print "   -c             Get configuration from file\n";
+    print "   -h             Specify database host (override config file)\n";
+    print "   -d             Specify database name (override config file)\n";
+    print "   -u             Specify database username (override config file)\n";
     print "   -f             Get username(s) from file\n";
 }
 
