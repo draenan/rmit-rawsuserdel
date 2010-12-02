@@ -16,15 +16,6 @@ if (!getopts("c:h:nTUvVd:u:m:f:", \%options)) {
     exit 1;
 }
 
-my $num_keys = keys(%options);
-
-#print "$options{h} $num_keys @ARGV\n";
-#if ($options{h} and $num_keys == 1 and @ARGV == 0) {
-#    VERSION_MESSAGE();
-#    HELP_MESSAGE();
-#    exit 0;
-#}
-
 if ($options{V}) {
     VERSION_MESSAGE();
     exit 0;
@@ -88,7 +79,10 @@ if (!$options{U}) {
         chomp($config{db_passwd});
         system ("stty echo");
         print "\n";
-    }  
+    }
+
+# TODO Test DB connectivity here.
+
 }
 elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
     print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
@@ -179,8 +173,18 @@ sub get_victims {
                     push @{ $$victims{accounts} }, $user;
                 }
             }
-            if (!$options{U}) {
-                push @{ $$victims{tables} }, $user;
+            if ($options{T} or !$options{U}) {
+                if ($options{T}) {
+                    push @{ $$victims{tables} }, $user;
+                }
+                else {
+                    if (!$passwd{$user}) {
+                        print "Will not delete tables with prefix \"$user\": doesn't match existing system account.\n" if defined $options{v};
+                    }
+                    else {
+                        push @{ $$victims{tables} }, $user;
+                    }
+                }
             }
         }
         else {
@@ -219,7 +223,6 @@ sub delete_tables {
     my ($tables) = @_;
     print "Will drop tables with prefixes: @{$$tables}\n";
 }
-
 
 sub HELP_MESSAGE {
     print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \\\n";
