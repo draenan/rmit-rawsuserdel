@@ -12,17 +12,18 @@ delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
 
 my %options = ();
-if (!getopts("c:h:nTUvVd:u:f:", \%options)) {
+if (!getopts("c:h:nTUvVd:u:m:f:", \%options)) {
     exit 1;
 }
 
 my $num_keys = keys(%options);
 
-if ($options{h} and $num_keys == 1 and @ARGV == 0) {
-    VERSION_MESSAGE();
-    HELP_MESSAGE();
-    exit 0;
-}
+#print "$options{h} $num_keys @ARGV\n";
+#if ($options{h} and $num_keys == 1 and @ARGV == 0) {
+#    VERSION_MESSAGE();
+#    HELP_MESSAGE();
+#    exit 0;
+#}
 
 if ($options{V}) {
     VERSION_MESSAGE();
@@ -58,6 +59,18 @@ my %config = (
 
 parse_config($conf_file, \%config);
 
+if (!$options{T} and defined $options{m}) {
+    if ($options{m} =~ /^(\d+)$/ and $options{m} >= 500 ) {
+        $config{min_uid} = $1;
+    }
+    else {
+        die "ERROR:  Invalid minimum UID specified.\n";
+    }
+}
+elsif ($options{T} and defined $options{m}) {
+    print "The \"-T\" option is set, ignoring minimum UID override.\n" if defined $options{v};
+}
+
 if (!$options{U}) {
     if ($options{h}) {
         $config{db_host} = $options{h};
@@ -76,17 +89,13 @@ if (!$options{U}) {
         system ("stty echo");
         print "\n";
     }  
-print "db_host:   $config{db_host}\n";
-print "db_name:   $config{db_name}\n";
-print "db_user:   $config{db_user}\n";
-print "db_passwd: $config{db_passwd}\n";
 }
-else {
+elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
     print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
 }
 
 my %passwd = ();
-hash_passwd(\%passwd);
+hash_passwd(\%passwd) unless defined $options{T};
 
 my @users = ();
 get_users(\@users);
@@ -98,10 +107,6 @@ $options{n} = 1;
 
 delete_users(\$victims{accounts}) unless defined $options{T};
 delete_tables(\$victims{tables}) unless defined $options{U};
-
-#foreach my $key (keys %victims) {
-#    print "$key: @{ $victims{$key} }\n";
-#}
 
 exit 0;
 
@@ -218,8 +223,8 @@ sub delete_tables {
 
 sub HELP_MESSAGE {
     print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \\\n";
-    print "                   [-u dbuser -p dbpassword] [-f file | username...]\n\n";
-    print "   (-h), --help   Prints this message and exits (-h only if sole argument)\n";
+    print "                   [-u dbuser -p dbpassword] [-m UID] [-f file | username...]\n\n";
+    print "       --help     Prints this message and exits\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
     print "   -V, --version  Prints version message and exits\n";
@@ -229,6 +234,7 @@ sub HELP_MESSAGE {
     print "   -h             Specify database host (override config file)\n";
     print "   -d             Specify database name (override config file)\n";
     print "   -u             Specify database username (override config file)\n";
+    print "   -m             Specify minimum UID (override config file)\n";
     print "   -f             Get username(s) from file\n";
 }
 
