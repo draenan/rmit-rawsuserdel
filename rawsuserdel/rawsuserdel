@@ -2,6 +2,7 @@
 # $Id$
 $|++;
 use strict;
+use warnings;
 use File::Basename;
 use Getopt::Std;
 
@@ -130,8 +131,8 @@ sub parse_config {
         $line =~ s/^\s+//;
         $line =~ s/\s+$//;
         if ($line !~ /^#/ and $line ne "") { 
-            $line =~ s/^(\S*)\s+=\s+(\S*)$/\1=\2/;
-            $line =~ s/^(.*)=[\'\"](.*)[\'\"]$/\1=\2/;
+            $line =~ s/^(\S*)\s+=\s+(\S*)$/$1=$2/;
+            $line =~ s/^(.*)=[\'\"](.*)[\'\"]$/$1=$2/;
             my ($key, @value) = split /=/, $line;
             $$config{$key} = join '=', @value;
         }
@@ -163,7 +164,7 @@ sub get_users {
 sub get_victims {
     my ($victims, $users) = @_;
     foreach my $user (@$users) {
-        if ($user =~ /^([A-Za-z_]+[\w-]*)$/) {
+        if ($user =~ /^([A-Za-z_]+[\w]*)$/) {
             $user = $1;
             if ($options{U} or !$options{T}) {
                 if (!$passwd{$user}) {
@@ -225,7 +226,7 @@ sub delete_tables {
 }
 
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \\\n";
+    print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \n";
     print "                   [-u dbuser -p dbpassword] [-m UID] [-f file | username...]\n\n";
     print "       --help     Prints this message and exits\n";
     print "   -n             Test mode\n";
