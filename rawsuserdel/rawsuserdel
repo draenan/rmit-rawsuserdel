@@ -14,7 +14,7 @@ delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
 
 my %options = ();
-if (!getopts("c:h:nTUvVd:u:m:Af:", \%options)) {
+if (!getopts("c:h:nAUTvVd:u:m:f:", \%options)) {
     exit 1;
 }
 
@@ -23,7 +23,8 @@ if ($options{V}) {
     exit 0;
 }
 
-if ( (!$options{f} and @ARGV == 0) or ($options{T} and $options{U}) ) {
+if ( (!$options{f} and @ARGV == 0) or ($options{T} and $options{U}) or
+      ($options{U} and $options{A}) or ($options{T} and $options{A}) ) {
     VERSION_MESSAGE();
     HELP_MESSAGE();
     exit 1;
@@ -102,10 +103,13 @@ get_victims(\%victims, \@users);
 my %ac_databases = ();
 my %ac_db_creds = ();
 if ($options{A}) {
-    if (!$options{T}) {
+    if (!$options{T} and !$options{U}) {
         foreach my $user (@{$victims{accounts}}) {
             find({ wanted => \&autoconf, untaint => 1 }, "/Users/$user/public_html/");
         }
+    }
+    elsif ($options{U}) {
+        print "The \"-U\" option is set, ignoring \"-A\" option.\n" if defined $options{v};
     }
     else {
         print "The \"-T\" option is set, igonoring \"-A\" option.\n" if defined $options{v};
@@ -115,7 +119,7 @@ if ($options{A}) {
 $options{n} = 1;
 
 delete_users(\$victims{accounts}) unless defined $options{T};
-delete_tables(\$victims{tables}) unless defined $options{U};
+delete_tables(\$victims{tables}, \%ac_databases, \%ac_db_creds) unless defined $options{U};
 
 exit 0;
 
@@ -194,7 +198,7 @@ sub get_victims {
                 }
                 else {
                     if (!$passwd{$user}) {
-                        print "Will not delete tables with prefix \"$user\": doesn't match existing system account.\n" if defined $options{v};
+                        print "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n" if defined $options{v};
                     }
                     else {
                         push @{ $$victims{tables} }, $user;
@@ -212,7 +216,7 @@ sub autoconf {
     my $file = $File::Find::name;
     return unless -f $file;
     return unless $file =~ /blog(?:\d?)\/wp-config\.php$/;
-    print "Found $file\n" if defined $options{v};
+    print "Checking config in file \"$file\"\n" if defined $options{v};
     open FILE, "<", $file or die "ERROR: Could not open $file\n";
     my ($db_name, $db_user, $db_password, $db_host, $table_prefix);
     while (<FILE>) {
@@ -266,26 +270,36 @@ sub delete_users {
 }
 
 sub delete_tables {
-    my ($tables) = @_;
-    print "Will drop tables with prefixes: @{$$tables}\n";
+    my ($tables, $ac_databases, $ac_db_creds) = @_;
+    my $num_db = keys %{$ac_databases};
+    if ($num_db > 0) {
+        foreach my $database (keys %{$ac_databases}) {
+            print "Database: $database  Credentials: $$ac_db_creds{$database}\n";
+            print "Prefixes: @{$$ac_databases{$database}}\n";
+        }
+    }
+    else {
+        print "Will drop tables with prefixes: @{$$tables}\n";
+    }
 }
 
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \n";
-    print "                   [-u dbuser -p dbpassword] [-m UID] [-A] [-f file | username...]\n\n";
+    print "Usage: rawsuserdel [-hnvV] [-A | -U | -T] [-c file] [-h hostname] [-d database] \n";
+    print "                   [-u dbuser -p dbpassword] [-m UID] [-f file | username...]\n\n";
     print "       --help     Prints this message and exits\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
     print "   -V, --version  Prints version message and exits\n";
-    print "   -T             Delete database tables only, leave user alone\n";
+    print "   -A             Get database details from user config files\n";
     print "   -U             Delete user only, leave database tables alone\n";
+    print "   -T             Delete database tables only, leave user alone\n";
     print "   -c             Get configuration from file\n";
     print "   -h             Specify database host (override config file)\n";
     print "   -d             Specify database name (override config file)\n";
     print "   -u             Specify database username (override config file)\n";
     print "   -m             Specify minimum UID (override config file)\n";
-    print "   -A             Get database details from user config files\n";
-    print "   -f             Get username(s) from file\n";
+    print "   -f             Get username(s) from file\n\n";
+    print "   username       RAWS user (default, -A, -U) or table prefix (-T)\n";
 }
 
 sub VERSION_MESSAGE {
