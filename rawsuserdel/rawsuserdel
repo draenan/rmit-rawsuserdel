@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use File::Basename;
 use Getopt::Std;
+use File::Find;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
@@ -13,7 +14,7 @@ delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
 
 my %options = ();
-if (!getopts("c:h:nTUvVd:u:m:f:", \%options)) {
+if (!getopts("c:h:nTUvVd:u:m:Af:", \%options)) {
     exit 1;
 }
 
@@ -97,6 +98,19 @@ get_users(\@users);
 
 my %victims = ();
 get_victims(\%victims, \@users);
+
+my %ac_databases = ();
+my %ac_db_creds = ();
+if ($options{A}) {
+    if (!$options{T}) {
+        foreach my $user (@{$victims{accounts}}) {
+            find({ wanted => \&autoconf, untaint => 1 }, "/Users/$user/public_html/");
+        }
+    }
+    else {
+        print "The \"-T\" option is set, igonoring \"-A\" option.\n" if defined $options{v};
+    }
+}
 
 $options{n} = 1;
 
@@ -194,6 +208,37 @@ sub get_victims {
     }
 }
 
+sub autoconf {
+    my $file = $File::Find::name;
+    return unless -f $file;
+    return unless $file =~ /blog(?:\d?)\/wp-config\.php$/;
+    print "Found $file\n" if defined $options{v};
+    open FILE, "<", $file or die "ERROR: Could not open $file\n";
+    my ($db_name, $db_user, $db_password, $db_host, $table_prefix);
+    while (<FILE>) {
+        chomp();
+        my $line = $_; 
+        if ($line =~ /'DB_NAME'.*'(\w+)'/) {
+            $db_name = $1; 
+        }   
+        elsif ($line =~ /'DB_USER'.*'(\w+)'/) {
+            $db_user = $1; 
+        }   
+        elsif ($line =~ /'DB_PASSWORD'.*'(\w+)'/) {
+            $db_password = $1; 
+        }   
+        elsif ($line =~ /'DB_HOST'.*'([\w\.]+)'/) {
+            $db_host = $1; 
+        }   
+        elsif ($line =~ /\$table_prefix.*'(\w+)'/) {
+            $table_prefix = $1; 
+        }   
+    }   
+    close FILE;
+    $ac_db_creds{$db_name} = join ':', ($db_user, $db_password) unless defined $ac_db_creds{$db_name};
+    push @{ $ac_databases{$db_name} }, $table_prefix if defined $table_prefix;
+}
+
 sub delete_users {
     my ($users) = @_;
     foreach my $user (@{$$users}) {
@@ -227,7 +272,7 @@ sub delete_tables {
 
 sub HELP_MESSAGE {
     print "Usage: rawsuserdel [-hnvV] [-T | -U] [-c file] [-h hostname] [-d database] \n";
-    print "                   [-u dbuser -p dbpassword] [-m UID] [-f file | username...]\n\n";
+    print "                   [-u dbuser -p dbpassword] [-m UID] [-A] [-f file | username...]\n\n";
     print "       --help     Prints this message and exits\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
@@ -239,6 +284,7 @@ sub HELP_MESSAGE {
     print "   -d             Specify database name (override config file)\n";
     print "   -u             Specify database username (override config file)\n";
     print "   -m             Specify minimum UID (override config file)\n";
+    print "   -A             Get database details from user config files\n";
     print "   -f             Get username(s) from file\n";
 }
 
