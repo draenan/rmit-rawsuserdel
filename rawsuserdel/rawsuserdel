@@ -53,6 +53,21 @@ my %config = (
 
 parse_config($conf_file, \%config);
 
+if ($config{log_file}) {
+    if ($config{log_file} =~ /(^[\w\.-\/]+)$/ ) {
+        my $log_file = $1;
+        if (-e $log_file) {
+            open LOG, ">>", $log_file or die "ERROR: Could not open log file.\n";
+        }
+        else {
+            open LOG, ">", $log_file or die "ERROR: Could not open log file.\n";
+        }
+    }
+    else {
+        die "ERROR: Invalid log file specified.\n";
+    }
+}
+
 if (!$options{T} and defined $options{m}) {
     if ($options{m} =~ /^(\d+)$/ and $options{m} >= 500 ) {
         $config{min_uid} = $1;
@@ -240,7 +255,7 @@ sub autoconf {
     }   
     close FILE;
     $ac_db_creds{$db_name} = join ':', ($db_user, $db_password) unless defined $ac_db_creds{$db_name};
-    push @{ $ac_databases{$db_name} }, $table_prefix if defined $table_prefix;
+    push @{ $ac_databases{$db_name} }, (join ':', ($db_host, $table_prefix)) if defined $table_prefix;
 }
 
 sub delete_users {
@@ -284,9 +299,11 @@ sub delete_tables {
 }
 
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-A | -U | -T] [-c file] [-h hostname] [-d database] \n";
-    print "                   [-u dbuser -p dbpassword] [-m UID] [-f file | username...]\n\n";
-    print "       --help     Prints this message and exits\n";
+    print "Usage: rawsuserdel [-hnvV] -A [-c file] [-h hostname] [-d database]\n";
+    print "                   [-u dbuser ] [-m UID] -f file | username...\n\n";
+    print "       rawsuserdel [-hnvV] -T [-c file] [-h hostname] [-d database]\n";
+    print "                   [-u dbuser] -f file | prefix...\n\n"; 
+    print "       rawsuserdel [-hnvV] -U [-c file] [-m UID] -f file | username...\n\n";
     print "   -n             Test mode\n";
     print "   -v             Be verbose\n";
     print "   -V, --version  Prints version message and exits\n";
@@ -298,8 +315,10 @@ sub HELP_MESSAGE {
     print "   -d             Specify database name (override config file)\n";
     print "   -u             Specify database username (override config file)\n";
     print "   -m             Specify minimum UID (override config file)\n";
-    print "   -f             Get username(s) from file\n\n";
-    print "   username       RAWS user (default, -A, -U) or table prefix (-T)\n";
+    print "   -f             Get usernames or prefixes from file\n";
+    print "       --help     Prints this message and exits\n";
+    print "   username       Existing RAWS user\n";
+    print "   prefix         RAWS database table prefix\n";
 }
 
 sub VERSION_MESSAGE {

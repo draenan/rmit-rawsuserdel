@@ -17,19 +17,27 @@
 
 #
 # min_uid -  Ignore requests to delete accounts with UIDs lower than this
-#            value.  Note that nobody, nobody4, and noaccess users are left
-#            alone regardless of this setting.  Also note that database
-#            tables with prefixes that match the usernames of protected UIDs
-#            will still be dropped; this should not be a problem as protected
-#            UIDs should not have RAWS blogs.
+#            value (but not lower than 500, to protect system accounts.)
+#            Note that "nobody", "nobody4", and "noaccess" users are left alone
+#            regardless of this setting.  This option is ignored when 
+#            running with the "-T" tables-only option.
 #
 #min_uid   = 500
 
 #
-# Database connection details.  Change as appropriate.
+# Database connection details.  Change as appropriate.  These values can be
+# overridden with command-line options, however when using the "-A"
+# autoconfig option the tables will not be deleted if db_host here or via the
+# command line does not match DB_HOST in the user's wp-config.php file.
 #
 #db_host   = "localhost"
 #db_name   = "example"
 #db_user   = "admin"
 #db_passwd = "s3kr1t"
+
+#
+# log_file - If you want logging, set this variable appropriately and
+#            uncomment it.
+#
+#log_file  = "/var/log/rawsuserdel.log"
 
