@@ -8,12 +8,15 @@ use Getopt::Std;
 use File::Find;
 use POSIX "strftime";
 use Sys::Hostname;
+use DBI;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
 
 delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
+
+$SIG{"INT"} = "INT_handler";
 
 my $cmd_name = basename("$0");
 my $hostname = hostname;
@@ -57,59 +60,7 @@ my %config = (
 );
 
 parse_config($conf_file, \%config);
-
-if ($config{log_file}) {
-    if ($config{log_file} =~ /(^[\w\.-\/]+)$/ ) {
-        my $log_file = $1;
-        if (-e $log_file) {
-            open LOG, ">>", $log_file or die "ERROR: Could not open log file.\n";
-        }
-        else {
-            open LOG, ">", $log_file or die "ERROR: Could not open log file.\n";
-        }
-    }
-    else {
-        die "ERROR: Invalid log file specified.\n";
-    }
-}
-
-if (!$options{T} and defined $options{m}) {
-    if ($options{m} =~ /^(\d+)$/ and $options{m} >= 500 ) {
-        $config{min_uid} = $1;
-    }
-    else {
-        die "ERROR:  Invalid minimum UID specified.\n";
-    }
-}
-elsif ($options{T} and defined $options{m}) {
-    print "The \"-T\" option is set, ignoring minimum UID override.\n" if defined $options{v};
-}
-
-if (!$options{U}) {
-    if ($options{h}) {
-        $config{db_host} = $options{h};
-    }
-
-    if ($options{d}) {
-        $config{db_name} = $options{d};
-    }
-
-    if ($options{u}) {
-        $config{db_user} = $options{u};
-        print "Enter password for \"$config{db_name}\" user \"$config{db_user}\": ";
-        system ("stty -echo");
-        $config{db_passwd} = <STDIN>; 
-        chomp($config{db_passwd});
-        system ("stty echo");
-        print "\n";
-    }
-
-# TODO Test DB connectivity here.
-
-}
-elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
-    print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
-}
+enact_config(\%config);
 
 my %passwd = ();
 hash_passwd(\%passwd) unless defined $options{T};
@@ -141,9 +92,24 @@ $options{n} = 1;
 delete_users(\$victims{accounts}) unless defined $options{T};
 delete_tables(\$victims{tables}, \%ac_databases, \%ac_db_creds) unless defined $options{U};
 
+if ($config{log_file}) {
+    log_message("--- $cmd_name END ---");
+    close LOG;
+}
+
 exit 0;
 
 #### Functions.
+
+sub INT_handler {
+    print "\nCaught SIGINT, exiting\n";
+    if (defined fileno(LOG)) {
+        log_message("Caught SIGINT, exiting");
+        log_message("--- $cmd_name END ---");
+        close LOG;
+    }
+    exit 1;
+}
 
 sub find_conf {
     if (-e "$0".".cf" ) {
@@ -177,8 +143,98 @@ sub parse_config {
     close FILE;
 }
 
+sub enact_config {
+    my ($config) = @_;
+    my $msg;
+    if ($$config{log_file}) {
+        if ($$config{log_file} =~ /(^[\w\.-\/]+)$/ ) {
+            my $log_file = $1;
+            if (-e $log_file) {
+              open LOG, ">>", $log_file or die "ERROR: Could not open log file.\n";
+            }
+            else {
+                open LOG, ">", $log_file or die "ERROR: Could not open log file.\n";
+            }
+            log_message("--- $cmd_name BEGIN ---");
+        }
+        else {
+            die "ERROR: Invalid log file specified.\n";
+        }
+    }
+
+    if (!$options{T} and defined $options{m}) {
+        if ($options{m} =~ /^(\d+)$/ and $options{m} >= 500 ) {
+            $$config{min_uid} = $1;
+        }
+        else {
+            die "ERROR:  Invalid minimum UID specified.\n";
+        }
+    }
+    elsif ($options{T} and defined $options{m}) {
+        print "The \"-T\" option is set, ignoring minimum UID override.\n" if defined $options{v};
+    }
+
+    if (!$options{U}) {
+        if ($options{h}) {
+            $$config{db_host} = $options{h};
+        }
+
+        if ($options{d}) {
+            $$config{db_name} = $options{d};
+        }
+
+        if ($options{u}) {
+            $$config{db_user} = $options{u};
+            print "Enter password for \"$$config{db_name}\" user \"$$config{db_user}\": ";
+            system ("stty -echo");
+            $$config{db_passwd} = <STDIN>; 
+            chomp($$config{db_passwd});
+            system ("stty echo");
+            print "\n";
+        }
+
+    print "Testing connection to database \"$$config{db_name}\" (Host: \"$$config{db_host}\" User: \"$$config{db_user}\") ...\n" if defined $options{v};
+    my $dsn = "dbi:mysql:$$config{db_name}:$$config{db_host}";
+    my $dbh;
+    eval {
+        $dbh = DBI->connect($dsn, $$config{db_user}, $$config{db_password}, {
+                               PrintError => 0,
+                               AutoCommit => 1, }) or die;
+    };
+    if ($@) {
+        $msg = "ERROR: Unable to connect to database: $DBI::errstr\n";
+        print $msg;
+        if ($config{log_file}) {
+            log_message($msg);
+            log_message("--- $cmd_name END ---");
+            close LOG;
+        }
+        exit 1;
+    }
+    eval {
+        $dbh->disconnect or die;
+    };
+    if ($@) {
+        $msg = "ERROR: Unable to disconnect from database: $DBI::errstr\n";
+        print $msg;
+        if ($config{log_file}) {
+            log_message($msg);
+            log_message("--- $cmd_name END ---");
+            close LOG;
+        }
+        exit 1;
+    }
+    print "Test successful.\n" if defined $options{v};
+    }
+    elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
+        print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
+    }
+}
+
 sub log_message {
-    printf LOG "%s %s %s[%s]: %s\n", strftime("%b %e %H:%M:%S", localtime), $hostname, $cmd_name, $$, @_;
+    my @msg = @_;
+    chomp(@msg);
+    printf LOG "%s %s %s[%s]: %s\n", strftime("%b %e %H:%M:%S", localtime), $hostname, $cmd_name, $$, @msg;
 }
 
 sub hash_passwd {
@@ -192,8 +248,21 @@ sub hash_passwd {
 
 sub get_users {
     my ($users) = @_;
+    my $msg;
     if ($options{f}) {
-        open FILE, "<", $options{f} or die "ERROR: Could not open $options{f}\n";
+        eval {
+            open FILE, "<", $options{f} or die;
+        };
+        if ($@) {
+            $msg = "ERROR: Could not open file \"$options{f}\"\n";
+            print $msg;
+            if ($config{log_file}) {
+                log_message($msg);
+                log_message("--- $cmd_name END ---");
+                close LOG;
+            }
+            exit 1; 
+        }
         @$users = <FILE>;
         close FILE;
     }
@@ -204,12 +273,15 @@ sub get_users {
 
 sub get_victims {
     my ($victims, $users) = @_;
+    my $msg;
     foreach my $user (@$users) {
         if ($user =~ /^([A-Za-z_]+[\w]*)$/) {
             $user = $1;
             if ($options{U} or !$options{T}) {
                 if (!$passwd{$user}) {
-                    print "Will not delete account for user \"$user\": protected, or not present.\n" if defined $options{v};
+                    $msg = "Will not delete account for user \"$user\": protected, or not present.\n";
+                    print $msg if defined $options{v};
+                    log_message($msg) if defined $config{log_file};
                 }
                 else {
                     push @{ $$victims{accounts} }, $user;
@@ -221,7 +293,9 @@ sub get_victims {
                 }
                 else {
                     if (!$passwd{$user}) {
-                        print "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n" if defined $options{v};
+                        $msg = "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n";
+                        print $msg if defined $options{v};
+                        log_message($msg) if defined $config{log_file};
                     }
                     else {
                         push @{ $$victims{tables} }, $user;
@@ -236,11 +310,20 @@ sub get_victims {
 }
 
 sub autoconf {
+    my $msg;
     my $file = $File::Find::name;
     return unless -f $file;
     return unless $file =~ /blog(?:\d?)\/wp-config\.php$/;
     print "Checking config in file \"$file\"\n" if defined $options{v};
-    open FILE, "<", $file or die "ERROR: Could not open $file\n";
+    eval {
+        open FILE, "<", $file or die;
+    };
+    if ($@) {
+        $msg = "WARNING: Could not open file \"$file\", ignoring\n";
+        print $msg if defined $options{v};
+        log_message($msg) if defined $config{log_file};
+        return;
+    }
     my ($db_name, $db_user, $db_password, $db_host, $table_prefix);
     while (<FILE>) {
         chomp();
@@ -263,7 +346,17 @@ sub autoconf {
     }   
     close FILE;
     $ac_db_creds{$db_name} = join ':', ($db_user, $db_password) unless defined $ac_db_creds{$db_name};
-    push @{ $ac_databases{$db_name} }, (join ':', ($db_host, $table_prefix)) if defined $table_prefix;
+
+    if ($db_host ne $config{db_host}) {
+        $file =~ /^\/Users\/(\w+)\//;
+        my $user = $1;
+        $msg = "WARNING: DB_HOST mismatch; ignoring tables for user \"$user\"\n"; 
+        print $msg if defined $options{v};
+        log_message($msg) if defined $config{log_file};
+    }
+    else {
+        push @{ $ac_databases{$db_name} }, $table_prefix if defined $table_prefix;
+    }
 }
 
 sub delete_users {
@@ -289,20 +382,30 @@ sub delete_users {
             }
         }
     }
-
 }
 
 sub delete_tables {
+    my $msg;
     my ($tables, $ac_databases, $ac_db_creds) = @_;
-    my $num_db = keys %{$ac_databases};
+    my $num_db = keys %{$ac_db_creds};
     if ($num_db > 0) {
-        foreach my $database (keys %{$ac_databases}) {
-            print "Database: $database  Credentials: $$ac_db_creds{$database}\n";
-            print "Prefixes: @{$$ac_databases{$database}}\n";
+        foreach my $database (keys %{$ac_db_creds}) {
+            my ($db_user, $db_password) = split ':', $$ac_db_creds{$database};
+            print "Database: $database  User: $db_user  Password: $db_password\n";
+            if (defined @{$$ac_databases{$database}}) {
+                foreach my $prefix (@{$$ac_databases{$database}}) {
+                    print "Prefix: $prefix\n";
+                }
+            }
+            else {
+                $msg = "WARNING: No prefixes supplied for database \"$database\"\n";
+                print $msg if defined $options{v};
+                log_message($msg) if defined $config{log_file};
+            }
         }
     }
     else {
-        print "Will drop tables with prefixes: @{$$tables}\n";
+        print "Will drop tables with prefixes: @{$$tables}\n" if defined @{$$tables};
     }
 }
 
