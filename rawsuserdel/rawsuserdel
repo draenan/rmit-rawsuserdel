@@ -6,12 +6,17 @@ use warnings;
 use File::Basename;
 use Getopt::Std;
 use File::Find;
+use POSIX "strftime";
+use Sys::Hostname;
 
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 our $VERSION = 0.1;
 
 delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
+
+my $cmd_name = basename("$0");
+my $hostname = hostname;
 
 my %options = ();
 if (!getopts("c:h:nAUTvVd:u:m:f:", \%options)) {
@@ -145,7 +150,6 @@ sub find_conf {
         return "$0".".cf";
     }
     else {
-        my $cmd_name = basename("$0");
         foreach my $default_file ( ("/usr/local/etc/$cmd_name.cf", "/etc/$cmd_name.cf") ) {
             if (-e $default_file) {
                 return $default_file;
@@ -171,6 +175,10 @@ sub parse_config {
         }
     }
     close FILE;
+}
+
+sub log_message {
+    printf LOG "%s %s %s[%s]: %s\n", strftime("%b %e %H:%M:%S", localtime), $hostname, $cmd_name, $$, @_;
 }
 
 sub hash_passwd {
