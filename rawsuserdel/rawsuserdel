@@ -26,6 +26,8 @@ if (!getopts("c:h:nAUTvVd:u:m:f:", \%options)) {
     exit 1;
 }
 
+$options{n} = 1;
+
 if ($options{V}) {
     VERSION_MESSAGE();
     exit 0;
@@ -62,6 +64,8 @@ my %config = (
 parse_config($conf_file, \%config);
 enact_config(\%config);
 
+my $lfh = fileno(LOG);
+
 my %passwd = ();
 hash_passwd(\%passwd) unless defined $options{T};
 
@@ -87,15 +91,11 @@ if ($options{A}) {
     }
 }
 
-$options{n} = 1;
 
 delete_users(\$victims{accounts}) unless defined $options{T};
 delete_tables(\$victims{tables}, \%ac_databases, \%ac_db_creds) unless defined $options{U};
 
-if ($config{log_file}) {
-    log_message("--- $cmd_name END ---");
-    close LOG;
-}
+close_log() if defined $lfh;
 
 exit 0;
 
@@ -105,8 +105,7 @@ sub INT_handler {
     print "\nCaught SIGINT, exiting\n";
     if (defined fileno(LOG)) {
         log_message("Caught SIGINT, exiting");
-        log_message("--- $cmd_name END ---");
-        close LOG;
+        close_log();
     }
     exit 1;
 }
@@ -146,22 +145,11 @@ sub parse_config {
 sub enact_config {
     my ($config) = @_;
     my $msg;
-    if ($$config{log_file}) {
-        if ($$config{log_file} =~ /(^[\w\.-\/]+)$/ ) {
-            my $log_file = $1;
-            if (-e $log_file) {
-              open LOG, ">>", $log_file or die "ERROR: Could not open log file.\n";
-            }
-            else {
-                open LOG, ">", $log_file or die "ERROR: Could not open log file.\n";
-            }
-            log_message("--- $cmd_name BEGIN ---");
-        }
-        else {
-            die "ERROR: Invalid log file specified.\n";
-        }
+    my $lfh;
+    if ($$config{log_file} and !$options{n}) {
+        print "Opening log file\n";
+        open_log($$config{log_file});
     }
-
     if (!$options{T} and defined $options{m}) {
         if ($options{m} =~ /^(\d+)$/ and $options{m} >= 500 ) {
             $$config{min_uid} = $1;
@@ -193,42 +181,52 @@ sub enact_config {
             print "\n";
         }
 
-    print "Testing connection to database \"$$config{db_name}\" (Host: \"$$config{db_host}\" User: \"$$config{db_user}\") ...\n" if defined $options{v};
-    my $dsn = "dbi:mysql:$$config{db_name}:$$config{db_host}";
-    my $dbh;
-    eval {
-        $dbh = DBI->connect($dsn, $$config{db_user}, $$config{db_password}, {
-                               PrintError => 0,
-                               AutoCommit => 1, }) or die;
-    };
-    if ($@) {
-        $msg = "ERROR: Unable to connect to database: $DBI::errstr\n";
-        print $msg;
-        if ($config{log_file}) {
-            log_message($msg);
-            log_message("--- $cmd_name END ---");
-            close LOG;
+        print "Testing connection to database \"$$config{db_name}\" (Host: \"$$config{db_host}\" User: \"$$config{db_user}\") ...\n" if defined $options{v};
+        my $dsn = "dbi:mysql:$$config{db_name}:$$config{db_host}";
+        my $dbh;
+        eval {
+            $dbh = DBI->connect($dsn, $$config{db_user}, $$config{db_passwd}, {
+                                PrintError => 0,
+                                AutoCommit => 1, }) or die;
+        };
+        if ($@) {
+            dbi_error();
+            exit 1;
         }
-        exit 1;
-    }
-    eval {
-        $dbh->disconnect or die;
-    };
-    if ($@) {
-        $msg = "ERROR: Unable to disconnect from database: $DBI::errstr\n";
-        print $msg;
-        if ($config{log_file}) {
-            log_message($msg);
-            log_message("--- $cmd_name END ---");
-            close LOG;
+        eval {
+            $dbh->disconnect or die;
+        };
+        if ($@) {
+            dbi_error();
+            exit 1;
         }
-        exit 1;
-    }
-    print "Test successful.\n" if defined $options{v};
+        print "Test successful.\n" if defined $options{v};
     }
     elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
         print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
     }
+}
+
+sub open_log {
+    my ($log_file) = @_;
+    if ($log_file =~ /(^[\w\.-\/]+)$/ ) {
+        $log_file = $1;
+        if (-e $log_file) {
+            open LOG, ">>", $log_file or die "ERROR: Could not open log file.\n";
+        }
+        else {
+            open LOG, ">", $log_file or die "ERROR: Could not open log file.\n";
+        }
+        log_message("--- $cmd_name BEGIN ---");
+    }
+    else {
+        die "ERROR: Invalid log file specified.\n";
+    }
+}
+
+sub close_log {
+    log_message("--- $cmd_name END ---");
+    close LOG;
 }
 
 sub log_message {
@@ -255,11 +253,10 @@ sub get_users {
         };
         if ($@) {
             $msg = "ERROR: Could not open file \"$options{f}\"\n";
-            print $msg;
+            print STDERR $msg;
             if ($config{log_file}) {
                 log_message($msg);
-                log_message("--- $cmd_name END ---");
-                close LOG;
+                close_log();
             }
             exit 1; 
         }
@@ -281,7 +278,7 @@ sub get_victims {
                 if (!$passwd{$user}) {
                     $msg = "Will not delete account for user \"$user\": protected, or not present.\n";
                     print $msg if defined $options{v};
-                    log_message($msg) if defined $config{log_file};
+                    log_message($msg) if defined $lfh;
                 }
                 else {
                     push @{ $$victims{accounts} }, $user;
@@ -295,7 +292,7 @@ sub get_victims {
                     if (!$passwd{$user}) {
                         $msg = "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n";
                         print $msg if defined $options{v};
-                        log_message($msg) if defined $config{log_file};
+                        log_message($msg) if defined $lfh;
                     }
                     else {
                         push @{ $$victims{tables} }, $user;
@@ -314,17 +311,19 @@ sub autoconf {
     my $file = $File::Find::name;
     return unless -f $file;
     return unless $file =~ /blog(?:\d?)\/wp-config\.php$/;
-    print "Checking config in file \"$file\"\n" if defined $options{v};
+    $msg = "Checking config in file \"$file\"\n";
+    print $msg if defined $options{v};
+    log_message($msg) if defined $lfh;
     eval {
         open FILE, "<", $file or die;
     };
     if ($@) {
         $msg = "WARNING: Could not open file \"$file\", ignoring\n";
         print $msg if defined $options{v};
-        log_message($msg) if defined $config{log_file};
+        log_message($msg) if defined $lfh;
         return;
     }
-    my ($db_name, $db_user, $db_password, $db_host, $table_prefix);
+    my ($db_name, $db_user, $db_passwd, $db_host, $table_prefix);
     while (<FILE>) {
         chomp();
         my $line = $_; 
@@ -335,7 +334,7 @@ sub autoconf {
             $db_user = $1; 
         }   
         elsif ($line =~ /'DB_PASSWORD'.*'(\w+)'/) {
-            $db_password = $1; 
+            $db_passwd = $1; 
         }   
         elsif ($line =~ /'DB_HOST'.*'([\w\.]+)'/) {
             $db_host = $1; 
@@ -345,14 +344,14 @@ sub autoconf {
         }   
     }   
     close FILE;
-    $ac_db_creds{$db_name} = join ':', ($db_user, $db_password) unless defined $ac_db_creds{$db_name};
+    $ac_db_creds{$db_name} = join ':', ($db_user, $db_passwd) unless defined $ac_db_creds{$db_name};
 
     if ($db_host ne $config{db_host}) {
         $file =~ /^\/Users\/(\w+)\//;
         my $user = $1;
         $msg = "WARNING: DB_HOST mismatch; ignoring tables for user \"$user\"\n"; 
         print $msg if defined $options{v};
-        log_message($msg) if defined $config{log_file};
+        log_message($msg) if defined $lfh;
     }
     else {
         push @{ $ac_databases{$db_name} }, $table_prefix if defined $table_prefix;
@@ -361,6 +360,7 @@ sub autoconf {
 
 sub delete_users {
     my ($users) = @_;
+    my $msg;
     foreach my $user (@{$$users}) {
         my @userdel_cmd = (
             "/usr/sbin/userdel",
@@ -373,7 +373,14 @@ sub delete_users {
             "rawshomepool/$user",
         );    
         if (!$options{n}) {
-            print "DELETE $user!!\n";
+            $msg = "Removing \"$user\" account from system";
+            print $msg if defined $options{v};
+            log_message($msg) if defined $lfh;
+            system(@userdel_cmd);
+            $msg = "Destroying \"rawshomepool/$user\" filesystem";
+            print $msg if defined $options{v};
+            log_message($msg) if defined $lfh;
+            system(@zfs_cmd);
         }
         else {
             if (defined $options{v}) {
@@ -385,27 +392,140 @@ sub delete_users {
 }
 
 sub delete_tables {
+    my ($prefixes, $ac_databases, $ac_db_creds) = @_;
     my $msg;
-    my ($tables, $ac_databases, $ac_db_creds) = @_;
+    my ($dbh, $dsn, $sth, @record, @tables, $prefix);
     my $num_db = keys %{$ac_db_creds};
     if ($num_db > 0) {
         foreach my $database (keys %{$ac_db_creds}) {
-            my ($db_user, $db_password) = split ':', $$ac_db_creds{$database};
-            print "Database: $database  User: $db_user  Password: $db_password\n";
+            my ($db_user, $db_passwd) = split ':', $$ac_db_creds{$database};
             if (defined @{$$ac_databases{$database}}) {
-                foreach my $prefix (@{$$ac_databases{$database}}) {
-                    print "Prefix: $prefix\n";
+                $dsn = "dbi:mysql:$database:$config{db_host}";
+                eval {
+                    $dbh = DBI->connect($dsn, $db_user, $db_passwd, {
+                                        PrintError => 0,
+                                        RaiseError => 1,
+                                        AutoCommit => 1, }) or die;
+                };
+                if ($@) {
+                    dbi_error();
+                    exit 1;
+                }
+                    
+                foreach $prefix (@{$$ac_databases{$database}}) {
+                    my $count = 0;
+                    my @records = ();
+                    $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
+                    $sth->execute();
+                    while(@record = $sth->fetchrow_array()) {
+                        push (@records, @record);
+                        push (@tables, @record);
+                        $count++;
+                    }
+                    if ($count == 0) {
+                        $msg = "No tables to drop for prefix \"$prefix\"\n";
+                        print $msg if $options{v};
+                        log_message($msg) if defined $lfh;
+                        next;
+                    }
+                    if ($options{v}) {
+                        $msg = "$count tables to drop with prefix \"$prefix\"\n";
+                        print $msg;
+                        log_message($msg) if defined $lfh;
+                        $msg = "Tables to be dropped: @records\n";
+                        print $msg;
+                        log_message($msg) if defined $lfh;
+                    }
+                }
+                return if @tables == 0;
+                if (!$options{n}) {
+                    $sth = $dbh->prepare("DROP TABLE ".(join", ", @tables));
+                    $sth->execute();
+                    $msg = "Tables dropped\n";
+                    print $msg if defined $options{v};
+                    log_message($msg) if defined $lfh;
+                }
+                else {
+                    $msg = "TEST: Tables dropped\n";
+                    print $msg if defined $options{v};
+                }
+                $dbh->disconnect();
+                if ($@) {
+                    dbi_error();
+                    exit 1;
                 }
             }
             else {
                 $msg = "WARNING: No prefixes supplied for database \"$database\"\n";
                 print $msg if defined $options{v};
-                log_message($msg) if defined $config{log_file};
+                log_message($msg) if defined $lfh;
             }
         }
     }
     else {
-        print "Will drop tables with prefixes: @{$$tables}\n" if defined @{$$tables};
+        $dsn = "dbi:mysql:$config{db_name}:$config{db_host}";
+        eval {
+            $dbh = DBI->connect($dsn, $config{db_user}, $config{db_passwd}, {
+                                PrintError => 0,
+                                RaiseError => 1,
+                                AutoCommit => 1, }) or die;
+        };
+        if ($@) {
+            dbi_error();
+            exit 1;
+        }
+
+        foreach $prefix (@{$$prefixes}) {
+            my $count = 0;
+            my @records = ();
+            $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
+            $sth->execute();
+            while(@record = $sth->fetchrow_array()) {
+                push (@records, @record);
+                push (@tables, @record);
+                $count++;
+            }
+            if ($count == 0) {
+                $msg = "No tables to drop for prefix \"$prefix\"\n";
+                print $msg if $options{v};
+                log_message($msg) if defined $lfh;
+                next;
+            }
+            if ($options{v}) {
+                $msg = "$count tables to drop with prefix \"$prefix\"\n";
+                print $msg;
+                log_message($msg) if defined $lfh;
+                $msg = "Tables to be dropped: @records\n";
+                print $msg;
+                log_message($msg) if defined $lfh;
+            }
+        }
+        return if @tables == 0;
+        if (!$options{n}) {
+            $sth = $dbh->prepare("DROP TABLE ".(join", ", @tables));
+            $sth->execute();
+            $msg = "Tables dropped\n";
+            print $msg if defined $options{v};
+            log_message($msg) if defined $lfh;
+        }
+        else {
+            $msg = "TEST: Tables dropped\n";
+            print $msg if defined $options{v};
+        }
+        $dbh->disconnect();
+        if ($@) {
+            dbi_error();
+            exit 1;
+        }
+    }
+}
+
+sub dbi_error {
+    my $msg = "ERROR: $DBI::errstr\n";
+    print STDERR $msg;
+    if (defined $lfh) {
+        log_message($msg);
+        close_log();
     }
 }
 
