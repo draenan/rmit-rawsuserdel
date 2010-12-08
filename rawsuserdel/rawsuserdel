@@ -147,7 +147,6 @@ sub enact_config {
     my $msg;
     my $lfh;
     if ($$config{log_file} and !$options{n}) {
-        print "Opening log file\n";
         open_log($$config{log_file});
     }
     if (!$options{T} and defined $options{m}) {
@@ -187,6 +186,7 @@ sub enact_config {
         eval {
             $dbh = DBI->connect($dsn, $$config{db_user}, $$config{db_passwd}, {
                                 PrintError => 0,
+                                RaiseError => 1,
                                 AutoCommit => 1, }) or die;
         };
         if ($@) {
@@ -194,7 +194,7 @@ sub enact_config {
             exit 1;
         }
         eval {
-            $dbh->disconnect or die;
+            $dbh->disconnect();
         };
         if ($@) {
             dbi_error();
@@ -318,7 +318,7 @@ sub autoconf {
         open FILE, "<", $file or die;
     };
     if ($@) {
-        $msg = "WARNING: Could not open file \"$file\", ignoring\n";
+        $msg = "WARNING: Could not open file \"$file\", ignoring.\n";
         print $msg if defined $options{v};
         log_message($msg) if defined $lfh;
         return;
@@ -349,7 +349,7 @@ sub autoconf {
     if ($db_host ne $config{db_host}) {
         $file =~ /^\/Users\/(\w+)\//;
         my $user = $1;
-        $msg = "WARNING: DB_HOST mismatch; ignoring tables for user \"$user\"\n"; 
+        $msg = "WARNING: DB_HOST mismatch; ignoring tables for user \"$user\".\n"; 
         print $msg if defined $options{v};
         log_message($msg) if defined $lfh;
     }
@@ -373,11 +373,11 @@ sub delete_users {
             "rawshomepool/$user",
         );    
         if (!$options{n}) {
-            $msg = "Removing \"$user\" account from system";
+            $msg = "Removing \"$user\" account from system.";
             print $msg if defined $options{v};
             log_message($msg) if defined $lfh;
             system(@userdel_cmd);
-            $msg = "Destroying \"rawshomepool/$user\" filesystem";
+            $msg = "Destroying \"rawshomepool/$user\" filesystem.";
             print $msg if defined $options{v};
             log_message($msg) if defined $lfh;
             system(@zfs_cmd);
@@ -411,45 +411,14 @@ sub delete_tables {
                     dbi_error();
                     exit 1;
                 }
-                    
-                foreach $prefix (@{$$ac_databases{$database}}) {
-                    my $count = 0;
-                    my @records = ();
-                    $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
-                    $sth->execute();
-                    while(@record = $sth->fetchrow_array()) {
-                        push (@records, @record);
-                        push (@tables, @record);
-                        $count++;
-                    }
-                    if ($count == 0) {
-                        $msg = "No tables to drop for prefix \"$prefix\"\n";
-                        print $msg if $options{v};
-                        log_message($msg) if defined $lfh;
-                        next;
-                    }
-                    if ($options{v}) {
-                        $msg = "$count tables to drop with prefix \"$prefix\"\n";
-                        print $msg;
-                        log_message($msg) if defined $lfh;
-                        $msg = "Tables to be dropped: @records\n";
-                        print $msg;
-                        log_message($msg) if defined $lfh;
-                    }
-                }
+                get_tables($$ac_databases{$database}, $dbh, \@tables);   
                 return if @tables == 0;
-                if (!$options{n}) {
-                    $sth = $dbh->prepare("DROP TABLE ".(join", ", @tables));
-                    $sth->execute();
-                    $msg = "Tables dropped\n";
-                    print $msg if defined $options{v};
-                    log_message($msg) if defined $lfh;
-                }
-                else {
-                    $msg = "TEST: Tables dropped\n";
-                    print $msg if defined $options{v};
-                }
-                $dbh->disconnect();
+
+                drop_tables($dbh, \@tables);
+
+                eval {
+                    $dbh->disconnect();
+                };
                 if ($@) {
                     dbi_error();
                     exit 1;
@@ -475,44 +444,14 @@ sub delete_tables {
             exit 1;
         }
 
-        foreach $prefix (@{$$prefixes}) {
-            my $count = 0;
-            my @records = ();
-            $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
-            $sth->execute();
-            while(@record = $sth->fetchrow_array()) {
-                push (@records, @record);
-                push (@tables, @record);
-                $count++;
-            }
-            if ($count == 0) {
-                $msg = "No tables to drop for prefix \"$prefix\"\n";
-                print $msg if $options{v};
-                log_message($msg) if defined $lfh;
-                next;
-            }
-            if ($options{v}) {
-                $msg = "$count tables to drop with prefix \"$prefix\"\n";
-                print $msg;
-                log_message($msg) if defined $lfh;
-                $msg = "Tables to be dropped: @records\n";
-                print $msg;
-                log_message($msg) if defined $lfh;
-            }
-        }
+        get_tables($prefixes, $dbh, \@tables);   
         return if @tables == 0;
-        if (!$options{n}) {
-            $sth = $dbh->prepare("DROP TABLE ".(join", ", @tables));
-            $sth->execute();
-            $msg = "Tables dropped\n";
-            print $msg if defined $options{v};
-            log_message($msg) if defined $lfh;
-        }
-        else {
-            $msg = "TEST: Tables dropped\n";
-            print $msg if defined $options{v};
-        }
-        $dbh->disconnect();
+
+        drop_tables($dbh, \@tables);
+
+        eval {
+            $dbh->disconnect();
+        };
         if ($@) {
             dbi_error();
             exit 1;
@@ -526,6 +465,86 @@ sub dbi_error {
     if (defined $lfh) {
         log_message($msg);
         close_log();
+    }
+}
+
+sub dbi_warn {
+   my $msg = "WARNING: $DBI::errstr\n";
+   print STDERR $msg;
+   if (defined $lfh) {
+       log_message($msg);
+   }
+}
+
+sub get_tables {
+    my ($prefixes, $dbh, $tables) = @_;
+    my ($count, $msg);
+    my ($sth, $prefix, @record, @records);
+    foreach $prefix (@{$$prefixes}) {
+        $count = 0;
+        @records = ();
+        eval {
+            $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
+        };
+        if ($@) {
+            dbi_warn();
+            next;
+        }
+        eval {
+            $sth->execute();
+        };
+        if ($@) {
+            dbi_warn();
+            next;
+        }
+        while(@record = $sth->fetchrow_array()) {
+            push (@records, @record);
+            push (@{$tables}, @record);
+            $count++;
+        }
+        if ($count == 0) {
+            $msg = "No tables to drop with prefix \"$prefix\".\n";
+            print $msg if $options{v};
+            log_message($msg) if defined $lfh;
+            next;
+        }
+        $msg = "$count tables to drop with prefix \"$prefix\".\n";
+        log_message($msg) if defined $lfh;
+        if ($options{v}) {
+            print $msg;
+            $msg = "Tables to be dropped: @records\n";
+            print $msg;
+            log_message($msg) if defined $lfh;
+        }
+    }
+}
+
+sub drop_tables {
+    my ($dbh, $tables) = @_;
+    my $msg;
+    my $sth;
+    if (!$options{n}) {
+        eval {
+            $sth = $dbh->prepare("DROP TABLE ".(join", ", @{$tables}));
+        };
+        if ($@) {
+            dbi_warn();
+            return;
+        }
+        eval {
+            $sth->execute();
+        };
+        if ($@) {
+            dbi_warn();
+            return;
+        }
+        $msg = @{$tables}." tables dropped.\n";
+        print $msg if defined $options{v};
+        log_message($msg) if defined $lfh;
+    }
+    else {
+        $msg = "TEST: ".@{$tables}." tables dropped.\n";
+        print $msg if defined $options{v};
     }
 }
 
