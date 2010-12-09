@@ -17,12 +17,12 @@
 
 #
 # min_uid -  Ignore requests to delete accounts with UIDs lower than this
-#            value (but not lower than 500, to protect system accounts.)
+#            value (but not lower than 501, to protect system accounts.)
 #            Note that "nobody", "nobody4", and "noaccess" users are left alone
 #            regardless of this setting.  This option is ignored when 
 #            running with the "-T" tables-only option.
 #
-#min_uid   = 500
+#min_uid   = 501
 
 #
 # Database connection details.  Change as appropriate.  These values can be

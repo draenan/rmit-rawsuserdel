@@ -26,8 +26,6 @@ if (!getopts("c:h:nAUTvVd:u:m:f:", \%options)) {
     exit 1;
 }
 
-$options{n} = 1;
-
 if ($options{V}) {
     VERSION_MESSAGE();
     exit 0;
@@ -40,6 +38,7 @@ if ( (!$options{f} and @ARGV == 0) or ($options{T} and $options{U}) or
     exit 1;
 }
 
+# FIXME Don't forget to uncomment this!
 #die "Need to run as root.\n" unless ($< == 0);
 
 my $conf_file;
@@ -54,7 +53,7 @@ else {
 die "ERROR: Could not find config file.\n" unless defined $conf_file;
 
 my %config = (
-    min_uid   => "500",
+    min_uid   => "501",
     db_host   => "localhost",
     db_name   => "example",
     db_user   => "admin",
@@ -150,7 +149,7 @@ sub enact_config {
         open_log($$config{log_file});
     }
     if (!$options{T} and defined $options{m}) {
-        if ($options{m} =~ /^(\d+)$/ and $options{m} >= 500 ) {
+        if ($options{m} =~ /^(\d+)$/ and $options{m} >= 501 ) {
             $$config{min_uid} = $1;
         }
         else {
@@ -373,19 +372,31 @@ sub delete_users {
             "rawshomepool/$user",
         );    
         if (!$options{n}) {
-            $msg = "Removing \"$user\" account from system.";
+            $msg = "Removing \"$user\" account from system.\n";
             print $msg if defined $options{v};
             log_message($msg) if defined $lfh;
             system(@userdel_cmd);
-            $msg = "Destroying \"rawshomepool/$user\" filesystem.";
-            print $msg if defined $options{v};
-            log_message($msg) if defined $lfh;
-            system(@zfs_cmd);
+            if ($?) {
+                $msg = "WARNING: userdel for \"$user\" failed. [".($? == -1 ? $? : $?  >> 8)."]\n";
+                print $msg;
+                log_message($msg) if defined $lfh;
+            }
+            else {
+                $msg = "Destroying \"rawshomepool/$user\" filesystem.\n";
+                print $msg if defined $options{v};
+                log_message($msg) if defined $lfh;
+                system(@zfs_cmd);
+                if ($?) {
+                    $msg = "WARNING: removal of \"$zfs_cmd[3]\" filesystem failed. [".($? == -1 ? $? : $? >> 8)."]\n";
+                    print $msg;
+                    log_message($msg) if defined $lfh;
+                }
+            }
         }
         else {
             if (defined $options{v}) {
-                print "TEST: Execute \"@userdel_cmd\"\n";
-                print "TEST: Execute \"@zfs_cmd\"\n";
+                print "TEST: Removing \"$user\" account from system.\n";
+                print "TEST: Destroying \"$zfs_cmd[3]\" filesystem.\n";
             }
         }
     }
