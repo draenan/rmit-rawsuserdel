@@ -271,6 +271,7 @@ sub get_victims {
     my ($victims, $users) = @_;
     my $msg;
     foreach my $user (@$users) {
+        chomp($user);
         if ($user =~ /^([A-Za-z_]+[\w]*)$/) {
             $user = $1;
             if ($options{U} or !$options{T}) {
@@ -299,7 +300,7 @@ sub get_victims {
                 }
             }
         }
-        else {
+        elsif ($user !~ /^#/ and $user ne "") {
             print "Ignoring invalid username \"$user\"\n" if defined $options{v};
         }
     }
@@ -422,7 +423,7 @@ sub delete_tables {
                     dbi_error();
                     exit 1;
                 }
-                get_tables($$ac_databases{$database}, $dbh, \@tables);   
+                get_tables(\$$ac_databases{$database}, $dbh, \@tables);   
                 return if @tables == 0;
 
                 drop_tables($dbh, \@tables);
