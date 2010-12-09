@@ -521,12 +521,9 @@ sub get_tables {
         }
         $msg = "$count tables to drop with prefix \"$prefix\".\n";
         log_message($msg) if defined $lfh;
-        if ($options{v}) {
-            print $msg;
-            $msg = "Tables to be dropped: @records\n";
-            print $msg;
-            log_message($msg) if defined $lfh;
-        }
+        $msg = "Tables to be dropped: @records\n";
+        print $msg if defined $options{v};
+        log_message($msg) if defined $lfh;
     }
 }
 
@@ -549,12 +546,12 @@ sub drop_tables {
             dbi_warn();
             return;
         }
-        $msg = @{$tables}." tables dropped.\n";
+        $msg = "Tables dropped.\n";
         print $msg if defined $options{v};
         log_message($msg) if defined $lfh;
     }
     else {
-        $msg = "TEST: ".@{$tables}." tables dropped.\n";
+        $msg = "TEST: Tables dropped.\n";
         print $msg if defined $options{v};
     }
 }
