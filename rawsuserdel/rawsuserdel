@@ -1,5 +1,110 @@
 #!/usr/bin/env perl -T
 # $Id$
+
+=pod
+
+=head1 NAME
+
+rawsuserdel - delete system users and database tables from RAWS
+
+=head1 SYNOPSIS
+
+    rawsuserdel [-hnvV] -A [-c file] [-h hostname] [-d database]
+                [-u dbuser ] [-m UID] -f file | username...
+
+    rawsuserdel [-hnvV] -T [-c file] [-h hostname] [-d database]
+                [-u dbuser] -f file | prefix...
+
+    rawsuserdel [-hnvV] -U [-c file] [-m UID] -f file | username...
+
+=head1 DESCRIPTION
+
+For each I<username> entered on the command line (or contained in a I<file>, one
+user per line), C<rawsuserdel> executes C<userdel> to delete the user's account,
+C<zfs> to delete the user's associated ZFS filesystem, and then gets and drops a
+list of tables from the database that have a prefix that matches the username.
+
+There are three modes of operation, chosen via command-line option:
+
+B<-A> Auto-config mode
+
+B<-U> User-delete mode
+
+B<-T> Table-drop mode
+
+In the absence of any explicitly defined mode, User-delete and Table-drop will
+both be invoked using configuration options obtained from the configuration file
+and any command-line overrides.
+
+=head1 OPTIONS
+
+B<-n> Test mode.  Does not make any changes.
+
+B<-v> Be verbose.  If not selected, only errors will be shown.
+
+B<-V> Prints version message and exits. (Also B<--version>)
+
+B<-A> Get database details from user config files.
+
+B<-U> Delete user only, leave database tables alone.
+
+B<-T> Delete database tables only, leave user alone.
+
+B<-c> Get configuration from file.
+
+B<-h> Specify database host (override config file.)
+
+B<-d> Specify database name (override config file.)
+
+B<-u> Specify database username (override config file.)
+
+B<-m> Specify minimum allowed UID (override config file.)
+
+B<-f> Get usernames or prefixes from file.
+
+B<--help> Prints usage message and exits.
+
+B<username> Existing RAWS user.
+
+B<prefix> RAWS database table prefix.
+
+=head1 CONFIGURATION
+
+rawsuserdel gets its configuration from the rawsuserdel.cf file in one of the
+following locations (in order of preference):
+
+
+- The same directory that the script is in
+
+- /usr/local/etc
+
+- /etc
+
+Alternatively, the file pointed at by the -c option will be used.  See the
+rawsuserdel.cf file for configuration directives.
+
+=head1 EXIT STATUS
+
+B<0> on success.
+
+B<1> on error.
+
+=head1 BUGS AND LIMITATIONS
+
+You cannot use this utility to delete users with a UID below the min_uid
+configuration setting.  In addition to this, you cannot delete the root user,
+nor can you delete the nobody, nobody4, and noaccess users (even though these
+three have UIDs greater than the default min_uid setting of 501.)
+
+There are no known bugs at this time.  Please report any that you find to the
+author.  Fixes are welcome.
+
+=head1 AUTHOR
+
+Adrian Waters <adrian.waters@rmit.edu.au>
+
+=cut
+
 $|++;
 use strict;
 use warnings;
@@ -251,9 +356,9 @@ sub get_users {
             open FILE, "<", $options{f} or die;
         };
         if ($@) {
-            $msg = "ERROR: Could not open file \"$options{f}\"\n";
+            $msg = "ERROR: Could not open data file \"$options{f}\"\n";
             print STDERR $msg;
-            if ($config{log_file}) {
+            if (defined $lfh) {
                 log_message($msg);
                 close_log();
             }
@@ -558,26 +663,26 @@ sub drop_tables {
 }
 
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] -A [-c file] [-h hostname] [-d database]\n";
+    print "Usage: rawsuserdel [-hnvV] [-A] [-c file] [-h hostname] [-d database]\n";
     print "                   [-u dbuser ] [-m UID] -f file | username...\n\n";
     print "       rawsuserdel [-hnvV] -T [-c file] [-h hostname] [-d database]\n";
     print "                   [-u dbuser] -f file | prefix...\n\n"; 
     print "       rawsuserdel [-hnvV] -U [-c file] [-m UID] -f file | username...\n\n";
-    print "   -n             Test mode\n";
-    print "   -v             Be verbose\n";
-    print "   -V, --version  Prints version message and exits\n";
-    print "   -A             Get database details from user config files\n";
-    print "   -U             Delete user only, leave database tables alone\n";
-    print "   -T             Delete database tables only, leave user alone\n";
-    print "   -c             Get configuration from file\n";
-    print "   -h             Specify database host (override config file)\n";
-    print "   -d             Specify database name (override config file)\n";
-    print "   -u             Specify database username (override config file)\n";
-    print "   -m             Specify minimum UID (override config file)\n";
-    print "   -f             Get usernames or prefixes from file\n";
-    print "       --help     Prints this message and exits\n";
-    print "   username       Existing RAWS user\n";
-    print "   prefix         RAWS database table prefix\n";
+    print "   -n             Test mode.  Does not make any changes.\n";
+    print "   -v             Be verbose.\n";
+    print "   -V, --version  Prints version message and exits.\n";
+    print "   -A             Get database details from user config files.\n";
+    print "   -U             Delete user only, leave database tables alone.\n";
+    print "   -T             Delete database tables only, leave user alone.\n";
+    print "   -c             Get configuration from file.\n";
+    print "   -h             Specify database host (override config file.)\n";
+    print "   -d             Specify database name (override config file.)\n";
+    print "   -u             Specify database username (override config file.)\n";
+    print "   -m             Specify minimum allowed UID (override config file.)\n";
+    print "   -f             Get usernames or prefixes from file.\n";
+    print "       --help     Prints this message and exits.\n";
+    print "   username       Existing RAWS user.\n";
+    print "   prefix         RAWS database table prefix.\n";
 }
 
 sub VERSION_MESSAGE {
