@@ -94,7 +94,8 @@ B<1> on error.
 You cannot use this utility to delete users with a UID below the min_uid
 configuration setting.  In addition to this, you cannot delete the root user,
 nor can you delete the nobody, nobody4, and noaccess users (even though these
-three have UIDs greater than the default min_uid setting of 501.)
+three have UIDs greater than the default min_uid setting of 501.)  This is
+intentional.
 
 There are no known bugs at this time.  Please report any that you find to the
 author.  Fixes are welcome.
@@ -105,7 +106,9 @@ Adrian Waters <adrian.waters@rmit.edu.au>
 
 =cut
 
-$|++;
+# Set up module imports and pragmas.
+
+$|++;   # Auto-flush
 use strict;
 use warnings;
 use File::Basename;
@@ -115,21 +118,37 @@ use POSIX "strftime";
 use Sys::Hostname;
 use DBI;
 
-$Getopt::Std::STANDARD_HELP_VERSION = 1;
+# Script version.
+
 our $VERSION = 0.1;
+
+# As recommended in Getopt::Std docs.
+
+$Getopt::Std::STANDARD_HELP_VERSION = 1;
+
+# Clean up environment and path for Taint mode.
 
 delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
 $ENV{PATH} = "/bin:/usr/bin";
 
+# Set up INT signal handler.
+
 $SIG{"INT"} = "INT_handler";
+
+# Setting these for ease of logging.
 
 my $cmd_name = basename("$0");
 my $hostname = hostname;
+
+# Get command-line options.
 
 my %options = ();
 if (!getopts("c:h:nAUTvVd:u:m:f:", \%options)) {
     exit 1;
 }
+
+# Print version message if requested, or help message if user did not invoke the
+# command correctly.
 
 if ($options{V}) {
     VERSION_MESSAGE();
@@ -143,8 +162,14 @@ if ( (!$options{f} and @ARGV == 0) or ($options{T} and $options{U}) or
     exit 1;
 }
 
-# FIXME Don't forget to uncomment this!
-#die "Need to run as root.\n" unless ($< == 0);
+# User has to run this script as root.  Theoretically with the use of Taint mode
+# this script could be set SUID root, but this is probably useful for that
+# little extra bit of safety.
+
+die "Need to run as root.\n" unless ($< == 0);
+
+# Either use the config file specified on the command line, or try to find it in
+# one of the default locations.
 
 my $conf_file;
 
@@ -157,6 +182,9 @@ else {
 
 die "ERROR: Could not find config file.\n" unless defined $conf_file;
 
+# Default config values.  These are commented out by default in the config file
+# and thus ignored, so we need to ensure they are set.
+
 my %config = (
     min_uid   => "501",
     db_host   => "localhost",
@@ -165,28 +193,60 @@ my %config = (
     db_passwd => "s3kr1t",
 );
 
+# Read and action the config file.
+
 parse_config($conf_file, \%config);
 enact_config(\%config);
 
+# Save the log file handle if the log file was opened.  This is used as a flag
+# for the rest of the script to determine if a message should be logged.
+
 my $lfh = fileno(LOG);
+
+# Create a hash of all valid user accounts on the system.  This will allow for
+# faster processing by circumventing the need to continually loop through the 
+# system users when checking each input username to see if it exists.
 
 my %passwd = ();
 hash_passwd(\%passwd) unless defined $options{T};
 
+# Retrieve and store the requested usernames to remove from the system.
+
 my @users = ();
 get_users(\@users);
+
+# Check that the users are valid and build a list of users and tables to delete.
+# The hash will have two keys ("accounts" and "tables") that contain lists of
+# usernames and table prefixes.
 
 my %victims = ();
 get_victims(\%victims, \@users);
 
+# If the user invoked the script with the "-A" autoconfig option the following
+# two hashes will be populated.  Keys in %ac_databases will be database names
+# retrieved from checking DB_NAME in the user wp-config.php files, with values
+# for each key being a list of prefixes in that database.  %ac_db_creds
+# contains the DB_USER and DB_PASSWORD values for each database key.
+
 my %ac_databases = ();
 my %ac_db_creds = ();
+
 if ($options{A}) {
+
+# "-A" is only valid if "-T" or "-U" have not been selected.    
+
     if (!$options{T} and !$options{U}) {
+
+# Get the list of valid user accounts and check each one for a wp-config.php
+# file using the autoconf() function.
+
         foreach my $user (@{$victims{accounts}}) {
             find({ wanted => \&autoconf, untaint => 1 }, "/Users/$user/public_html/");
         }
     }
+
+# These two ELSEs should never execute, but I'm leaving them in.
+
     elsif ($options{U}) {
         print "The \"-U\" option is set, ignoring \"-A\" option.\n" if defined $options{v};
     }
@@ -195,15 +255,23 @@ if ($options{A}) {
     }
 }
 
+# Delete the users (unless "-T" was specified), then delete the users' database
+# tables (unless "-U" was specified.)
 
 delete_users(\$victims{accounts}) unless defined $options{T};
 delete_tables(\$victims{tables}, \%ac_databases, \%ac_db_creds) unless defined $options{U};
+
+# Close the log file if it was open.
 
 close_log() if defined $lfh;
 
 exit 0;
 
+# All done. :)
+
 #### Functions.
+
+# INT_handler() - Intercepts the INT signal, closing the log file if it is open.
 
 sub INT_handler {
     print "\nCaught SIGINT, exiting\n";
@@ -211,14 +279,23 @@ sub INT_handler {
         log_message("Caught SIGINT, exiting");
         close_log();
     }
-    exit 1;
+    exit 1;  # Not _really_ an error, but neither is it success.
 }
 
+# find_conf() - Looks for the config file.
+
 sub find_conf {
+
+# Check the directory where rawsuserdel is located first.
+
     if (-e "$0".".cf" ) {
         return "$0".".cf";
     }
     else {
+
+# If not found, check /usr/local/etc, then /etc.  If it isn't found the function
+# will return without having set $conf_file.
+
         foreach my $default_file ( ("/usr/local/etc/$cmd_name.cf", "/etc/$cmd_name.cf") ) {
             if (-e $default_file) {
                 return $default_file;
@@ -227,32 +304,45 @@ sub find_conf {
    }
 }
 
+# parse_config() - Parses the config file.  Requires the name of the file and a
+# reference to the %config hash.
+
 sub parse_config {
     my ($file, $config) = @_;
     my $line;
     open FILE, "<", $file or die "ERROR: Could not open $file\n";
     while (<FILE>) {
-        $line = $_;
-        chomp ($line);
-        $line =~ s/^\s+//;
-        $line =~ s/\s+$//;
-        if ($line !~ /^#/ and $line ne "") { 
-            $line =~ s/^(\S*)\s+=\s+(\S*)$/$1=$2/;
-            $line =~ s/^(.*)=[\'\"](.*)[\'\"]$/$1=$2/;
-            my ($key, @value) = split /=/, $line;
-            $$config{$key} = join '=', @value;
+        $line = $_;                                     # Read line from file.
+        chomp ($line);                                  # Remove newline from end of line.
+        $line =~ s/^\s+//;                              # Strip leading whitespace.
+        $line =~ s/\s+$//;                              # Strip trailing whitespace.
+        if ($line !~ /^#/ and $line ne "") {            # Ignore comments or blanks. 
+            $line =~ s/^(\S*)\s+=\s+(\S*)$/$1=$2/;      # Strip whitespace around "=".
+            $line =~ s/^(.*)=[\'\"](.*)[\'\"]$/$1=$2/;  # Strip quotes from value.
+            my ($key, @value) = split /=/, $line;       # Split option from value.
+            $$config{$key} = join '=', @value;          # Load option and value into hash.
         }
     }
     close FILE;
 }
 
+# enact_config() - Checks that the retrieved values are appropriate and acts
+# on them if required.  Requires a reference to the %config hash.
+
 sub enact_config {
     my ($config) = @_;
     my $msg;
     my $lfh;
+
+# Open the log file if the script isn't running in test mode.
+
     if ($$config{log_file} and !$options{n}) {
         open_log($$config{log_file});
     }
+
+# If not running in "-T" mode, untaint $min_uid and check that it is in the
+# correct range.
+
     if (!$options{T} and defined $options{m}) {
         if ($options{m} =~ /^(\d+)$/ and $options{m} >= 501 ) {
             $$config{min_uid} = $1;
@@ -264,6 +354,11 @@ sub enact_config {
     elsif ($options{T} and defined $options{m}) {
         print "The \"-T\" option is set, ignoring minimum UID override.\n" if defined $options{v};
     }
+
+# Replace database configuration values obtained from the config file with the
+# ones provided by the user from the command line.  Ask the user for the
+# database user password if a database user override was specified.  This is
+# only valid if "-U" mode was not requested.
 
     if (!$options{U}) {
         if ($options{h}) {
@@ -283,6 +378,11 @@ sub enact_config {
             system ("stty echo");
             print "\n";
         }
+
+# Test that the details are correct by connecting to the database.
+# Interestingly, Perl doesn't complain that the user input is tainted.
+# Not sure if this means that DBI untaints it, or this isn't something
+# that needs to be worried about.
 
         print "Testing connection to database \"$$config{db_name}\" (Host: \"$$config{db_host}\" User: \"$$config{db_user}\") ...\n" if defined $options{v};
         my $dsn = "dbi:mysql:$$config{db_name}:$$config{db_host}";
@@ -306,13 +406,22 @@ sub enact_config {
         }
         print "Test successful.\n" if defined $options{v};
     }
+
+# Ignore database overrides if we're only deleting users.
+
     elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
         print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
     }
 }
 
+# open_log() - Opens the log file.  Requires a reference to the file name.
+
 sub open_log {
     my ($log_file) = @_;
+
+# Untaint the file name and open it if valid.  Append to an existing file, or create a
+# new one if there isn't one in existence.
+
     if ($log_file =~ /(^[\w\.-\/]+)$/ ) {
         $log_file = $1;
         if (-e $log_file) {
@@ -321,6 +430,9 @@ sub open_log {
         else {
             open LOG, ">", $log_file or die "ERROR: Could not open log file.\n";
         }
+
+# Put a timestamp in the log to indicate when the script started.
+
         log_message("--- $cmd_name BEGIN ---");
     }
     else {
@@ -328,25 +440,50 @@ sub open_log {
     }
 }
 
+# close_log() - Timestamp the end of the script and close the log file.
+
 sub close_log {
     log_message("--- $cmd_name END ---");
     close LOG;
 }
 
+# log_message() - Write a message to the log file.  Requires a reference
+# to the message string to write.
+
 sub log_message {
     my @msg = @_;
     chomp(@msg);
+
+# Writes out time (Month, Day, HH:MM:SS), command name, command PID, and the message.
+
     printf LOG "%s %s %s[%s]: %s\n", strftime("%b %e %H:%M:%S", localtime), $hostname, $cmd_name, $$, @msg;
 }
 
+# hash_passwd() - Creates a hash of all the system accounts.  This is to assist
+# checking each input user name for validity;; quicker to look up in a hash
+# than to cycle through every system user for each input user name.  Requires
+# a reference to the %passwd hash.
+
 sub hash_passwd {
     my ($passwd) = @_;
+
+# setpwent() is used rather than checking /etc/passwd because this script was
+# developed on Mac OS X which uses Open Directory, not /etc/passwd.  Of
+# course, this will still be useful if RAWS ever goes fully LDAP. :)
+
+# A username will only make it into the hash if its UID is not less than
+# min_uid, and the username is not root, nobody, nobody4, or noaccess.
+
     setpwent();
     while (my ($user, $uid) = (getpwent())[0,2]) {
         $$passwd{$user} = 1  unless $uid < $config{min_uid} or $user =~ /^(?:root|no(?:body|access))/;
     }
     endpwent();
 }
+
+# get_users() - Get the list of users/table prefixes to delete from either
+# the command line or the specified input file.  Requires a reference to
+# the @users array.
 
 sub get_users {
     my ($users) = @_;
@@ -372,13 +509,25 @@ sub get_users {
     }
 }
 
+# get_victims() - Check every user in the @users array to see if it is
+# valid (ie, referenced in the %oasswd hash) for those modes that delete
+# user accounts, and add the username to the list of table prefixes to
+# delete.  Requires references to the %victims hash and @users array.
+
 sub get_victims {
     my ($victims, $users) = @_;
     my $msg;
     foreach my $user (@$users) {
+
+# Remove any newlines from the user name and untaint.        
+
         chomp($user);
         if ($user =~ /^([A-Za-z_]+[\w]*)$/) {
             $user = $1;
+
+# If we are deletng system users, ensure that username is one that we can
+# delete.  Copy the username to the list of accounts if valid.
+
             if ($options{U} or !$options{T}) {
                 if (!$passwd{$user}) {
                     $msg = "Will not delete account for user \"$user\": protected, or not present.\n";
@@ -389,11 +538,20 @@ sub get_victims {
                     push @{ $$victims{accounts} }, $user;
                 }
             }
+
+# If we are deleting tables, add the username to the list of table prefixes
+# to delete.
+
             if ($options{T} or !$options{U}) {
                 if ($options{T}) {
                     push @{ $$victims{tables} }, $user;
                 }
                 else {
+
+# If run without one of either the "-T" or "-U" option, ensure that the
+# requested username is one that we can delete by checking the %passwd
+# hash.  Copy the username to the list of table prefixes if valid.
+
                     if (!$passwd{$user}) {
                         $msg = "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n";
                         print $msg if defined $options{v};
@@ -405,6 +563,11 @@ sub get_victims {
                 }
             }
         }
+
+# Alert the user that the username was invalid if we are being verbose,
+# but only if the username was not set to a blank line or comment when
+# retrieved from the input file.
+
         elsif ($user !~ /^#/ and $user ne "") {
             print "Ignoring invalid username \"$user\"\n" if defined $options{v};
         }
