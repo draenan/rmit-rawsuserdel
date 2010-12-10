@@ -174,6 +174,8 @@ use POSIX "strftime";           # For strftime() when logging.
 use Sys::Hostname;              # For hostname.
 use DBI;                        # For MySQL access (requires DBD:mysql)
 
+no warnings "File::Find";       # Don't care about warnings (like "can't stat")
+
 # Script version.
 
 our $VERSION = 0.1;
