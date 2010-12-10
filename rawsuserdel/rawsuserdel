@@ -33,13 +33,13 @@ There are three modes of operation, chosen via command-line option:
 
 Auto-config mode
 
-=item -U
-
-User-delete mode
-
 =item -T
 
 Table-drop mode
+
+=item -U
+
+User-delete mode
 
 =back
 
@@ -55,13 +55,13 @@ and any command-line overrides.
 
 Get database details from user C<wp-config.php> files.
 
-=item -U
-
-Delete user only, leave database tables alone.
-
 =item -T
 
 Delete database tables only, leave user alone.
+
+=item -U
+
+Delete user only, leave database tables alone.
 
 =item -n
 
@@ -1005,8 +1005,8 @@ sub HELP_MESSAGE {
     print "                   [-u dbuser] (-f file | prefix...)\n\n"; 
     print "       $cmd_name  -U [-nvV] [-c file] [-m UID] (-f file | username...)\n\n";
     print "   -A             Get database details from user wp-config.php files.\n";
-    print "   -U             Delete user only, leave database tables alone.\n";
     print "   -T             Delete database tables only, leave user alone.\n";
+    print "   -U             Delete user only, leave database tables alone.\n";
     print "   -n             Test mode.  Does not make any changes.\n";
     print "   -v             Be verbose.\n";
     print "   -V, --version  Prints version message and exits.\n";
