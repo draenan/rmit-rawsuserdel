@@ -293,7 +293,7 @@ if ($options{A}) {
 # file using the autoconf() function.
 
     foreach my $user (@{$victims{accounts}}) {
-        find({ wanted => \&autoconf, untaint => 1 }, "/Users/$user/public_html/");
+        find({ wanted => \&autoconf, untaint => 1, untaint_skip => 1, }, "/Users/$user/public_html/");
     }
 }
 
