@@ -1,4 +1,5 @@
-#!/usr/bin/env perl -T
+/bin/echo 'Check that #! is set correctly!'; exit
+#!/usr/bin/perl -T
 # $Id$
 
 =pod
@@ -9,13 +10,13 @@ rawsuserdel - delete system users and database tables from RAWS
 
 =head1 SYNOPSIS
 
-    rawsuserdel [-hnvV] -A [-c file] [-h hostname] [-d database]
-                [-u dbuser ] [-m UID] -f file | username...
+    rawsuserdel [-A] [-nvV] [-c file] [-h hostname] [-d database]
+                [-u dbuser ] [-m UID] (-f file | username...)
 
-    rawsuserdel [-hnvV] -T [-c file] [-h hostname] [-d database]
-                [-u dbuser] -f file | prefix...
+    rawsuserdel  -T [-nvV] [-c file] [-h hostname] [-d database]
+                [-u dbuser] (-f file | prefix...)
 
-    rawsuserdel [-hnvV] -U [-c file] [-m UID] -f file | username...
+    rawsuserdel  -U [-nvV] [-c file] [-m UID] (-f file | username...)
 
 =head1 DESCRIPTION
 
@@ -26,72 +27,127 @@ list of tables from the database that have a prefix that matches the username.
 
 There are three modes of operation, chosen via command-line option:
 
-B<-A> Auto-config mode
+=over 10
 
-B<-U> User-delete mode
+=item -A
 
-B<-T> Table-drop mode
+Auto-config mode
 
-In the absence of any explicitly defined mode, User-delete and Table-drop will
+=item -U
+
+User-delete mode
+
+=item -T
+
+Table-drop mode
+
+=back
+
+In the absence of any explicitly defined mode, I<User-delete> and I<Table-drop> will
 both be invoked using configuration options obtained from the configuration file
 and any command-line overrides.
 
 =head1 OPTIONS
 
-B<-n> Test mode.  Does not make any changes.
+=over 15
 
-B<-v> Be verbose.  If not selected, only errors will be shown.
+=item -A
 
-B<-V> Prints version message and exits. (Also B<--version>)
+Get database details from user C<wp-config.php> files.
 
-B<-A> Get database details from user config files.
+=item -U
 
-B<-U> Delete user only, leave database tables alone.
+Delete user only, leave database tables alone.
 
-B<-T> Delete database tables only, leave user alone.
+=item -T
 
-B<-c> Get configuration from file.
+Delete database tables only, leave user alone.
 
-B<-h> Specify database host (override config file.)
+=item -n
 
-B<-d> Specify database name (override config file.)
+Test mode.  Does not make any changes.
 
-B<-u> Specify database username (override config file.)
+=item -v
 
-B<-m> Specify minimum allowed UID (override config file.)
+Be verbose.  If not selected, only errors will be shown.
 
-B<-f> Get usernames or prefixes from file.
+=item -V, --version
 
-B<--help> Prints usage message and exits.
+Prints version message and exits.
 
-B<username> Existing RAWS user.
+=item -c 
 
-B<prefix> RAWS database table prefix.
+Get configuration from I<file>.
+
+=item -h
+
+Specify database host (override script config file.)
+
+=item -d
+
+Specify database name (override script config file.)
+
+=item -u
+
+Specify database username (override script config file.)
+
+=item -m
+
+Specify minimum allowed UID (override script config file.)
+
+=item -f
+
+Get usernames or prefixes from I<file>.
+
+=item --help
+
+Prints usage message and exits.
+
+=item username
+
+Existing RAWS user.
+
+=item prefix
+
+RAWS database table prefix.
+
+=back
 
 =head1 CONFIGURATION
 
-rawsuserdel gets its configuration from the rawsuserdel.cf file in one of the
+C<rawsuserdel> gets its configuration from the I<rawsuserdel.cf> file in one of the
 following locations (in order of preference):
 
+=over
 
-- The same directory that the script is in
+=item *
 
-- /usr/local/etc
+The same directory that the script is in
 
-- /etc
+=item *
 
-Alternatively, the file pointed at by the -c option will be used.  See the
-rawsuserdel.cf file for configuration directives.
+/usr/local/etc
+
+=item *
+
+/etc
+
+=back
+
+Alternatively, the I<file> pointed at by the -c option will be used.  See the
+C<rawsuserdel.cf> file for configuration directives.
 
 =head1 EXIT STATUS
 
-B<0> on success.
+0 on success.
 
-B<1> on error.
+1 on error.
+
+2 on SIGINT.
 
 =head1 BUGS AND LIMITATIONS
 
-You cannot use this utility to delete users with a UID below the min_uid
+You cannot use this utility to delete users with a UID below the I<min_uid>
 configuration setting.  In addition to this, you cannot delete the root user,
 nor can you delete the nobody, nobody4, and noaccess users (even though these
 three have UIDs greater than the default min_uid setting of 501.)  This is
@@ -108,15 +164,15 @@ Adrian Waters <adrian.waters@rmit.edu.au>
 
 # Set up module imports and pragmas.
 
-$|++;   # Auto-flush
-use strict;
-use warnings;
-use File::Basename;
-use Getopt::Std;
-use File::Find;
-use POSIX "strftime";
-use Sys::Hostname;
-use DBI;
+$|++;                           # Auto-flush.
+use strict;                     # Naturally.
+use warnings;                   # Ditto.
+use File::Basename;             # For basename().
+use Getopt::Std;                # For getopts().
+use File::Find;                 # For find().
+use POSIX "strftime";           # For strftime() when logging.
+use Sys::Hostname;              # For hostname.
+use DBI;                        # For MySQL access (requires DBD:mysql)
 
 # Script version.
 
@@ -233,25 +289,11 @@ my %ac_db_creds = ();
 
 if ($options{A}) {
 
-# "-A" is only valid if "-T" or "-U" have not been selected.    
-
-    if (!$options{T} and !$options{U}) {
-
 # Get the list of valid user accounts and check each one for a wp-config.php
 # file using the autoconf() function.
 
-        foreach my $user (@{$victims{accounts}}) {
-            find({ wanted => \&autoconf, untaint => 1 }, "/Users/$user/public_html/");
-        }
-    }
-
-# These two ELSEs should never execute, but I'm leaving them in.
-
-    elsif ($options{U}) {
-        print "The \"-U\" option is set, ignoring \"-A\" option.\n" if defined $options{v};
-    }
-    else {
-        print "The \"-T\" option is set, igonoring \"-A\" option.\n" if defined $options{v};
+    foreach my $user (@{$victims{accounts}}) {
+        find({ wanted => \&autoconf, untaint => 1 }, "/Users/$user/public_html/");
     }
 }
 
@@ -269,18 +311,20 @@ exit 0;
 
 # All done. :)
 
+
 #### Functions.
 
 # INT_handler() - Intercepts the INT signal, closing the log file if it is open.
 
 sub INT_handler {
-    print "\nCaught SIGINT, exiting\n";
+    print "\nCaught SIGINT, exiting.\n";
     if (defined fileno(LOG)) {
-        log_message("Caught SIGINT, exiting");
+        log_message("Caught SIGINT, exiting.");
         close_log();
     }
-    exit 1;  # Not _really_ an error, but neither is it success.
-}
+    exit 2;
+} # End INT_handler.
+
 
 # find_conf() - Looks for the config file.
 
@@ -302,7 +346,9 @@ sub find_conf {
             }
         }
    }
-}
+   return undef;
+} # End find_conf.
+
 
 # parse_config() - Parses the config file.  Requires the name of the file and a
 # reference to the %config hash.
@@ -324,7 +370,8 @@ sub parse_config {
         }
     }
     close FILE;
-}
+} #end parse_config.
+
 
 # enact_config() - Checks that the retrieved values are appropriate and acts
 # on them if required.  Requires a reference to the %config hash.
@@ -333,12 +380,6 @@ sub enact_config {
     my ($config) = @_;
     my $msg;
     my $lfh;
-
-# Open the log file if the script isn't running in test mode.
-
-    if ($$config{log_file} and !$options{n}) {
-        open_log($$config{log_file});
-    }
 
 # If not running in "-T" mode, untaint $min_uid and check that it is in the
 # correct range.
@@ -353,6 +394,12 @@ sub enact_config {
     }
     elsif ($options{T} and defined $options{m}) {
         print "The \"-T\" option is set, ignoring minimum UID override.\n" if defined $options{v};
+    }
+
+# Open the log file if the script isn't running in test mode.
+
+    if ($$config{log_file} and !$options{n}) {
+        open_log($$config{log_file});
     }
 
 # Replace database configuration values obtained from the config file with the
@@ -412,7 +459,8 @@ sub enact_config {
     elsif ($options{U} and ($options{h} or $options{d} or $options{u})) {
         print "The \"-U\" option is set, ignoring database config overrides.\n" if defined $options{v};
     }
-}
+} # End enact_config.
+
 
 # open_log() - Opens the log file.  Requires a reference to the file name.
 
@@ -438,14 +486,16 @@ sub open_log {
     else {
         die "ERROR: Invalid log file specified.\n";
     }
-}
+} # End open_log.
+
 
 # close_log() - Timestamp the end of the script and close the log file.
 
 sub close_log {
     log_message("--- $cmd_name END ---");
     close LOG;
-}
+} # End close_og.
+
 
 # log_message() - Write a message to the log file.  Requires a reference
 # to the message string to write.
@@ -457,10 +507,11 @@ sub log_message {
 # Writes out time (Month, Day, HH:MM:SS), command name, command PID, and the message.
 
     printf LOG "%s %s %s[%s]: %s\n", strftime("%b %e %H:%M:%S", localtime), $hostname, $cmd_name, $$, @msg;
-}
+} # End log_message.
+
 
 # hash_passwd() - Creates a hash of all the system accounts.  This is to assist
-# checking each input user name for validity;; quicker to look up in a hash
+# checking each input user name for validity; quicker to look up in a hash
 # than to cycle through every system user for each input user name.  Requires
 # a reference to the %passwd hash.
 
@@ -479,7 +530,8 @@ sub hash_passwd {
         $$passwd{$user} = 1  unless $uid < $config{min_uid} or $user =~ /^(?:root|no(?:body|access))/;
     }
     endpwent();
-}
+} #End hash_passwd.
+
 
 # get_users() - Get the list of users/table prefixes to delete from either
 # the command line or the specified input file.  Requires a reference to
@@ -507,10 +559,11 @@ sub get_users {
     else {
         push @$users, @ARGV;
     }
-}
+} # End get_users.
+
 
 # get_victims() - Check every user in the @users array to see if it is
-# valid (ie, referenced in the %oasswd hash) for those modes that delete
+# valid (ie, referenced in the %passwd hash) for those modes that delete
 # user accounts, and add the username to the list of table prefixes to
 # delete.  Requires references to the %victims hash and @users array.
 
@@ -522,66 +575,78 @@ sub get_victims {
 # Remove any newlines from the user name and untaint.        
 
         chomp($user);
-        if ($user =~ /^([A-Za-z_]+[\w]*)$/) {
-            $user = $1;
+        $user =~ s/^\s+//;                        # Strip leading whitespace.
+        $user =~ s/\s+$//;                        # Strip trailing whitespace.
+        if ($user !~ /^#/ and $user ne "") {      # Check for comment or blank. 
+            if ($user =~ /^([A-Za-z_]+[\w]*)$/) {
+                $user = $1;
 
 # If we are deletng system users, ensure that username is one that we can
 # delete.  Copy the username to the list of accounts if valid.
 
-            if ($options{U} or !$options{T}) {
-                if (!$passwd{$user}) {
-                    $msg = "Will not delete account for user \"$user\": protected, or not present.\n";
-                    print $msg if defined $options{v};
-                    log_message($msg) if defined $lfh;
-                }
-                else {
-                    push @{ $$victims{accounts} }, $user;
-                }
-            }
-
-# If we are deleting tables, add the username to the list of table prefixes
-# to delete.
-
-            if ($options{T} or !$options{U}) {
-                if ($options{T}) {
-                    push @{ $$victims{tables} }, $user;
-                }
-                else {
-
-# If run without one of either the "-T" or "-U" option, ensure that the
-# requested username is one that we can delete by checking the %passwd
-# hash.  Copy the username to the list of table prefixes if valid.
-
+                if ($options{U} or !$options{T}) {
                     if (!$passwd{$user}) {
-                        $msg = "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n";
+                        $msg = "Will not delete account for user \"$user\": protected, or not present.\n";
                         print $msg if defined $options{v};
                         log_message($msg) if defined $lfh;
                     }
                     else {
+                        push @{ $$victims{accounts} }, $user;
+                    }
+                }
+
+# If we are deleting tables, add the username to the list of table prefixes
+# to delete.
+
+                if ($options{T} or !$options{U}) {
+                    if ($options{T}) {
                         push @{ $$victims{tables} }, $user;
+                    }
+                    else {
+
+# If run with the "-A" option, ensure that the requested username is one
+# whose tables we can delete by checking the %passwd hash.  Copy the username
+# to the list of table prefixes if valid.
+
+                        if (!$passwd{$user}) {
+                            $msg = "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n";
+                            print $msg if defined $options{v};
+                            log_message($msg) if defined $lfh;
+                        }
+                        else {
+                            push @{ $$victims{tables} }, $user;
+                        }
                     }
                 }
             }
-        }
-
 # Alert the user that the username was invalid if we are being verbose,
 # but only if the username was not set to a blank line or comment when
 # retrieved from the input file.
 
-        elsif ($user !~ /^#/ and $user ne "") {
-            print "Ignoring invalid username \"$user\"\n" if defined $options{v};
+            else {
+                print "Ignoring invalid username \"$user\"\n" if defined $options{v};
+            }   
         }
     }
-}
+} # End  get_victims.
+
+# autoconf() - Used by the find() function in File::Find to search for a file
+# (in this case wp-config.php in users' public_html directories.)  If found,
+# this function opens the file and reads the various Wordpress database
+# settings from it.
 
 sub autoconf {
     my $msg;
     my $file = $File::Find::name;
     return unless -f $file;
-    return unless $file =~ /blog(?:\d?)\/wp-config\.php$/;
+    return unless $file =~ /blog(?:\d?)\/wp-config\.php$/; # "blog" or "blog2".
     $msg = "Checking config in file \"$file\"\n";
     print $msg if defined $options{v};
     log_message($msg) if defined $lfh;
+
+# Catch any failure with opening the config file; we'll use the default config
+# instead.
+
     eval {
         open FILE, "<", $file or die;
     };
@@ -591,6 +656,10 @@ sub autoconf {
         log_message($msg) if defined $lfh;
         return;
     }
+
+# Read each line from the found config file and store the value if it
+# matches what we are looking for.
+
     my ($db_name, $db_user, $db_passwd, $db_host, $table_prefix);
     while (<FILE>) {
         chomp();
@@ -612,7 +681,15 @@ sub autoconf {
         }   
     }   
     close FILE;
+
+# Store the credentials for the database (unless they've already been stored.)
+
     $ac_db_creds{$db_name} = join ':', ($db_user, $db_passwd) unless defined $ac_db_creds{$db_name};
+
+# If the user's config file is set to use a database server different from the
+# one specified in the script's config file ignore the user settings (but raise
+# an alert so the admin can investigate.  If they do match, add the table prefix
+# to the list of prefixes to act on in the database hash.
 
     if ($db_host ne $config{db_host}) {
         $file =~ /^\/Users\/(\w+)\//;
@@ -624,11 +701,18 @@ sub autoconf {
     else {
         push @{ $ac_databases{$db_name} }, $table_prefix if defined $table_prefix;
     }
-}
+} # End autoconf.
+
+
+# delete_users() - Removes user system accounts and associated ZFS filesystems.
+# Requires a reference to the @users array.
 
 sub delete_users {
     my ($users) = @_;
     my $msg;
+
+# For each username in the array, set up the relevant userdel and zfs command.
+
     foreach my $user (@{$$users}) {
         my @userdel_cmd = (
             "/usr/sbin/userdel",
@@ -640,11 +724,18 @@ sub delete_users {
             "-r",
             "rawshomepool/$user",
         );    
+
+# Execute the commands if not running in test mode.
+
         if (!$options{n}) {
             $msg = "Removing \"$user\" account from system.\n";
             print $msg if defined $options{v};
             log_message($msg) if defined $lfh;
             system(@userdel_cmd);
+
+# Catch and alert on any error when executing userdel.  Don't execute the
+# zfs command if we couldn't delete the user.
+
             if ($?) {
                 $msg = "WARNING: userdel for \"$user\" failed. [".($? == -1 ? $? : $?  >> 8)."]\n";
                 print $msg;
@@ -654,6 +745,9 @@ sub delete_users {
                 $msg = "Destroying \"rawshomepool/$user\" filesystem.\n";
                 print $msg if defined $options{v};
                 log_message($msg) if defined $lfh;
+
+# Catch and alert on any error when destroying the user's filesystem.
+
                 system(@zfs_cmd);
                 if ($?) {
                     $msg = "WARNING: removal of \"$zfs_cmd[3]\" filesystem failed. [".($? == -1 ? $? : $? >> 8)."]\n";
@@ -663,23 +757,43 @@ sub delete_users {
             }
         }
         else {
+
+# Running in test mode; say what we will do, but don't do it.
+
             if (defined $options{v}) {
                 print "TEST: Removing \"$user\" account from system.\n";
                 print "TEST: Destroying \"$zfs_cmd[3]\" filesystem.\n";
             }
         }
     }
-}
+} # End delete_users.
+
+# delete_tables() - Drops tables from the RAWS database.  Requires references
+# to the array of prefixes to delete, and the two autoconfig hashes.
 
 sub delete_tables {
     my ($prefixes, $ac_databases, $ac_db_creds) = @_;
     my $msg;
     my ($dbh, $dsn, $sth, @record, @tables, $prefix);
+
+# Check if the autoconfig hashes were populated.
+
     my $num_db = keys %{$ac_db_creds};
     if ($num_db > 0) {
+
+# If the autoconfig hashes were populated, retrieve the details and
+# act on the,
+
         foreach my $database (keys %{$ac_db_creds}) {
+
+# Get the database credentials.
+
             my ($db_user, $db_passwd) = split ':', $$ac_db_creds{$database};
+
             if (defined @{$$ac_databases{$database}}) {
+
+# Attempt to connect to the database if there are tables to drop.
+
                 $dsn = "dbi:mysql:$database:$config{db_host}";
                 eval {
                     $dbh = DBI->connect($dsn, $db_user, $db_passwd, {
@@ -691,8 +805,14 @@ sub delete_tables {
                     dbi_error();
                     exit 1;
                 }
+
+# Get the list of tables that match the table prefix.  Return if there
+# are no matches.
+
                 get_tables(\$$ac_databases{$database}, $dbh, \@tables);   
                 return if @tables == 0;
+
+# Drop the tables.
 
                 drop_tables($dbh, \@tables);
 
@@ -705,6 +825,9 @@ sub delete_tables {
                 }
             }
             else {
+
+# Alert if there were no prefixes queued up for the database.
+
                 $msg = "WARNING: No prefixes supplied for database \"$database\"\n";
                 print $msg if defined $options{v};
                 log_message($msg) if defined $lfh;
@@ -712,6 +835,10 @@ sub delete_tables {
         }
     }
     else {
+
+# Not using autoconfig.  As per the above, but use the database details
+# provided in the config file or at the command line.
+
         $dsn = "dbi:mysql:$config{db_name}:$config{db_host}";
         eval {
             $dbh = DBI->connect($dsn, $config{db_user}, $config{db_passwd}, {
@@ -737,7 +864,11 @@ sub delete_tables {
             exit 1;
         }
     }
-}
+} # End delete_tables.
+
+
+# dbi_error() - Prints and logs any errors that occur when accessing the
+# database.
 
 sub dbi_error {
     my $msg = "ERROR: $DBI::errstr\n";
@@ -746,7 +877,11 @@ sub dbi_error {
         log_message($msg);
         close_log();
     }
-}
+} # End dbi_error.
+
+
+# dbi_warn() - Prints and logs any non-fatal errors that occur when
+# accessing the database.
 
 sub dbi_warn {
    my $msg = "WARNING: $DBI::errstr\n";
@@ -754,15 +889,25 @@ sub dbi_warn {
    if (defined $lfh) {
        log_message($msg);
    }
-}
+} # End dbi_warn.
+
+
+# get_tables() - Retrieves a list of tables from the database that match
+# the table prefix.  Requires references to the array of prefixes, the
+# database handle, and an array to store the results in.
 
 sub get_tables {
     my ($prefixes, $dbh, $tables) = @_;
     my ($count, $msg);
     my ($sth, $prefix, @record, @records);
+
+# Get a list of tables that match each prefix.  If there are errors,
+# consider them warnings rather than fatal errors and go to the next
+# prefix.
+
     foreach $prefix (@{$$prefixes}) {
         $count = 0;
-        @records = ();
+        @records = (); # Intermediary array, for logging purposes.
         eval {
             $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
         };
@@ -777,30 +922,50 @@ sub get_tables {
             dbi_warn();
             next;
         }
+
+# Retrieve each row from the query result, push it into the temporay
+# @records array, and the @tables results array.
+
         while(@record = $sth->fetchrow_array()) {
             push (@records, @record);
             push (@{$tables}, @record);
             $count++;
         }
+
+# Report if no tables and try the next prefix.
+
         if ($count == 0) {
             $msg = "No tables to drop with prefix \"$prefix\".\n";
             print $msg if $options{v};
             log_message($msg) if defined $lfh;
             next;
         }
+
+# Report on the list of found tables.
+
         $msg = "$count tables to drop with prefix \"$prefix\".\n";
         log_message($msg) if defined $lfh;
         $msg = "Tables to be dropped: @records\n";
         print $msg if defined $options{v};
         log_message($msg) if defined $lfh;
     }
-}
+} # End of get_tables.
+
+
+# drop_tables() - Drops the tables specifed in a supplied array.
+# Requires references to the database handle and an array of database
+# tables.
 
 sub drop_tables {
     my ($dbh, $tables) = @_;
     my $msg;
     my $sth;
+
     if (!$options{n}) {
+
+# If not running in test mode, drop the list of comma-seperated tables.
+# Treat any errors as non-fatal, but report on them.
+
         eval {
             $sth = $dbh->prepare("DROP TABLE ".(join", ", @{$tables}));
         };
@@ -820,36 +985,45 @@ sub drop_tables {
         log_message($msg) if defined $lfh;
     }
     else {
+
+# If running in test mode, say we did it, but don't do it.
+
         $msg = "TEST: Tables dropped.\n";
         print $msg if defined $options{v};
     }
-}
+} # End of dropt_tables.
+
+
+# HELP_MESSAGE() - Help message as used by Getopt::Std. 
 
 sub HELP_MESSAGE {
-    print "Usage: rawsuserdel [-hnvV] [-A] [-c file] [-h hostname] [-d database]\n";
-    print "                   [-u dbuser ] [-m UID] -f file | username...\n\n";
-    print "       rawsuserdel [-hnvV] -T [-c file] [-h hostname] [-d database]\n";
-    print "                   [-u dbuser] -f file | prefix...\n\n"; 
-    print "       rawsuserdel [-hnvV] -U [-c file] [-m UID] -f file | username...\n\n";
+    print "Usage: $cmd_name [-A] [-nvV] [-c file] [-h hostname] [-d database]\n";
+    print "                   [-u dbuser ] [-m UID] (-f file | username...)\n\n";
+    print "       $cmd_name  -T [-nvV] [-c file] [-h hostname] [-d database]\n";
+    print "                   [-u dbuser] (-f file | prefix...)\n\n"; 
+    print "       $cmd_name  -U [-nvV] [-c file] [-m UID] (-f file | username...)\n\n";
+    print "   -A             Get database details from user wp-config.php files.\n";
+    print "   -U             Delete user only, leave database tables alone.\n";
+    print "   -T             Delete database tables only, leave user alone.\n";
     print "   -n             Test mode.  Does not make any changes.\n";
     print "   -v             Be verbose.\n";
     print "   -V, --version  Prints version message and exits.\n";
-    print "   -A             Get database details from user config files.\n";
-    print "   -U             Delete user only, leave database tables alone.\n";
-    print "   -T             Delete database tables only, leave user alone.\n";
     print "   -c             Get configuration from file.\n";
-    print "   -h             Specify database host (override config file.)\n";
-    print "   -d             Specify database name (override config file.)\n";
-    print "   -u             Specify database username (override config file.)\n";
-    print "   -m             Specify minimum allowed UID (override config file.)\n";
+    print "   -h             Specify database host (override script config file.)\n";
+    print "   -d             Specify database name (override script config file.)\n";
+    print "   -u             Specify database username (override script config file.)\n";
+    print "   -m             Specify minimum allowed UID (override script config file.)\n";
     print "   -f             Get usernames or prefixes from file.\n";
-    print "       --help     Prints this message and exits.\n";
+    print "       --help     Prints usage message and exits.\n";
     print "   username       Existing RAWS user.\n";
     print "   prefix         RAWS database table prefix.\n";
-}
+} # End HELP_MESSAGE.
+
+
+# VERSION_MESSAGE() - Version message as used by Getopt:Std.
 
 sub VERSION_MESSAGE {
-    print "rawsuserdel version $VERSION\n";
-}
+    print "$cmd_name version $VERSION\n";
+} # End of VERSION_MESSAGE.
 
 # vi: set tabstop=4 shiftwidth=4 expandtab si ai nu:
