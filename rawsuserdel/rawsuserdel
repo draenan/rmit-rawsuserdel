@@ -1,4 +1,4 @@
-/bin/echo 'Check that #! is set correctly!'; exit
+/bin/echo "Make sure the #! value is correct!" ; exit;
 #!/usr/bin/perl -T
 # $Id$
 
@@ -153,6 +153,10 @@ nor can you delete the nobody, nobody4, and noaccess users (even though these
 three have UIDs greater than the default min_uid setting of 501.)  This is
 intentional.
 
+Database usernames and passwords are restricted to alphanumeric.  This is not
+a problem for the current RAWS databases, but may need to be rethought in the
+future.
+
 There are no known bugs at this time.  Please report any that you find to the
 author.  Fixes are welcome.
 
@@ -251,6 +255,7 @@ my %config = (
     db_passwd => "s3kr1t",
 );
 
+
 # Read and action the config file.
 
 parse_config($conf_file, \%config);
@@ -295,7 +300,10 @@ if ($options{A}) {
 # file using the autoconf() function.
 
     foreach my $user (@{$victims{accounts}}) {
-        find({ wanted => \&autoconf, untaint => 1, untaint_skip => 1, }, "/Users/$user/public_html/");
+        find({ wanted => \&autoconf,
+               untaint => 1,
+               untaint_skip => 1,
+             }, "/Users/$user/public_html/");
     }
 }
 
@@ -319,9 +327,11 @@ exit 0;
 # INT_handler() - Intercepts the INT signal, closing the log file if it is open.
 
 sub INT_handler {
-    print "\nCaught SIGINT, exiting.\n";
+    my $msg;
+    $msg = "\nCaught SIGINT, exiting.\n";
+    system ("stty echo");                           # Just in case!
     if (defined fileno(LOG)) {
-        log_message("Caught SIGINT, exiting.");
+        log_message($msg);
         close_log();
     }
     exit 2;
@@ -381,7 +391,6 @@ sub parse_config {
 sub enact_config {
     my ($config) = @_;
     my $msg;
-    my $lfh;
 
 # If not running in "-T" mode, untaint $min_uid and check that it is in the
 # correct range.
@@ -406,20 +415,64 @@ sub enact_config {
 
 # Replace database configuration values obtained from the config file with the
 # ones provided by the user from the command line.  Ask the user for the
-# database user password if a database user override was specified.  This is
-# only valid if "-U" mode was not requested.
+# database user password if a database user override was specified.  Once the
+# values are obtained (either from the config file or the command line), untaint
+# them prior to use.
+#
+# All this is only valid if "-U" mode was not requested.
 
     if (!$options{U}) {
         if ($options{h}) {
             $$config{db_host} = $options{h};
+            }
+        if ($$config{db_host} =~ /^(\w+[\w\.]+)$/ ) {
+            $$config{db_host} = $1;
+        }
+        else {
+            $msg = "ERROR: Invalid database hostname specified.\n";
+            print STDERR $msg;
+            if (defined $lfh) {
+                log_message($msg);
+                close_log();
+            }
+            exit(1);
         }
 
         if ($options{d}) {
             $$config{db_name} = $options{d};
         }
 
+        if ($$config{db_name} =~ /^(\w+)$/ ) {
+            $$config{db_name} = $1;
+        }
+        else {
+            $msg = "ERROR: Invalid database name specified.\n";
+            print STDERR $msg;
+            if (defined $lfh) {
+                log_message($msg);
+                close_log();
+            }
+            exit(1);
+        }
+
         if ($options{u}) {
             $$config{db_user} = $options{u};
+        }    
+
+        if ($$config{db_user} =~ /^(\w+)$/ ) {
+            $$config{db_user} = $1;
+        }
+        else {
+            $msg = "ERROR: Invalid database username specified.\n";
+            print STDERR $msg;
+            if (defined $lfh) {
+                log_message($msg);
+                close_log();
+            }
+            exit(1);
+        }
+
+        if ($options{u}) {
             print "Enter password for \"$$config{db_name}\" user \"$$config{db_user}\": ";
             system ("stty -echo");
             $$config{db_passwd} = <STDIN>; 
@@ -428,10 +481,20 @@ sub enact_config {
             print "\n";
         }
 
+        if ($$config{db_passwd} =~ /^(\w+)$/ ) {
+            $$config{db_passwd} = $1;
+        }
+        else {
+            $msg = "ERROR: Invalid database password specified.\n";
+            print STDERR $msg;
+            if (defined $lfh) {
+                log_message($msg);
+                close_log();
+            }
+            exit(1);
+        }
+
 # Test that the details are correct by connecting to the database.
-# Interestingly, Perl doesn't complain that the user input is tainted.
-# Not sure if this means that DBI untaints it, or this isn't something
-# that needs to be worried about.
 
         print "Testing connection to database \"$$config{db_name}\" (Host: \"$$config{db_host}\" User: \"$$config{db_user}\") ...\n" if defined $options{v};
         my $dsn = "dbi:mysql:$$config{db_name}:$$config{db_host}";
@@ -440,7 +503,8 @@ sub enact_config {
             $dbh = DBI->connect($dsn, $$config{db_user}, $$config{db_passwd}, {
                                 PrintError => 0,
                                 RaiseError => 1,
-                                AutoCommit => 1, }) or die;
+                                AutoCommit => 1,
+                                TaintIn    => 1, }) or die;
         };
         if ($@) {
             dbi_error();
@@ -606,9 +670,9 @@ sub get_victims {
                     }
                     else {
 
-# If run with the "-A" option, ensure that the requested username is one
-# whose tables we can delete by checking the %passwd hash.  Copy the username
-# to the list of table prefixes if valid.
+# If run without the "-U" or "-T" options, ensure that the requested username
+# is one whose tables we can delete by checking the %passwd hash.  Copy the
+# username to the list of table prefixes if valid.
 
                         if (!$passwd{$user}) {
                             $msg = "Will not delete tables with prefix \"$user\": doesn't match removable system account.\n";
@@ -621,6 +685,7 @@ sub get_victims {
                     }
                 }
             }
+
 # Alert the user that the username was invalid if we are being verbose,
 # but only if the username was not set to a blank line or comment when
 # retrieved from the input file.
@@ -630,7 +695,7 @@ sub get_victims {
             }   
         }
     }
-} # End  get_victims.
+} # End get_victims.
 
 # autoconf() - Used by the find() function in File::Find to search for a file
 # (in this case wp-config.php in users' public_html directories.)  If found,
@@ -675,7 +740,7 @@ sub autoconf {
         elsif ($line =~ /'DB_PASSWORD'.*'(\w+)'/) {
             $db_passwd = $1; 
         }   
-        elsif ($line =~ /'DB_HOST'.*'([\w\.]+)'/) {
+        elsif ($line =~ /'DB_HOST'.*'(\w+[\w\.]+)'/) {
             $db_host = $1; 
         }   
         elsif ($line =~ /\$table_prefix.*'(\w+)'/) {
@@ -801,7 +866,9 @@ sub delete_tables {
                     $dbh = DBI->connect($dsn, $db_user, $db_passwd, {
                                         PrintError => 0,
                                         RaiseError => 1,
-                                        AutoCommit => 1, }) or die;
+                                        AutoCommit => 1,
+                                        TaintIn    => 1,
+                                        TaintOut   => 1, }) or die;
                 };
                 if ($@) {
                     dbi_error();
@@ -846,7 +913,10 @@ sub delete_tables {
             $dbh = DBI->connect($dsn, $config{db_user}, $config{db_passwd}, {
                                 PrintError => 0,
                                 RaiseError => 1,
-                                AutoCommit => 1, }) or die;
+                                AutoCommit => 1,
+                                TaintIn    => 1, 
+                                TaintOut   => 1,
+                                 }) or die;
         };
         if ($@) {
             dbi_error();
@@ -873,7 +943,13 @@ sub delete_tables {
 # database.
 
 sub dbi_error {
-    my $msg = "ERROR: $DBI::errstr\n";
+    my $msg;
+    if ($DBI::errstr) {
+        $msg = "ERROR: $DBI::errstr\n";
+    }
+    else {
+        $msg = "ERROR: Unspecified DBI error occured.\n";
+    }
     print STDERR $msg;
     if (defined $lfh) {
         log_message($msg);
@@ -886,11 +962,17 @@ sub dbi_error {
 # accessing the database.
 
 sub dbi_warn {
-   my $msg = "WARNING: $DBI::errstr\n";
-   print STDERR $msg;
-   if (defined $lfh) {
-       log_message($msg);
-   }
+    my $msg;
+    if ($DBI::errstr) { 
+        $msg = "WARNING: $DBI::errstr\n";
+    }
+    else {
+        $msg = "WARNING: Unspecified DBI error occured.\n";
+    }
+    print STDERR $msg;
+    if (defined $lfh) {
+        log_message($msg);
+    }
 } # End dbi_warn.
 
 
@@ -911,14 +993,14 @@ sub get_tables {
         $count = 0;
         @records = (); # Intermediary array, for logging purposes.
         eval {
-            $sth = $dbh->prepare("SHOW TABLES LIKE \"$prefix%\"");
+            $sth = $dbh->prepare("SHOW TABLES LIKE ?");
         };
         if ($@) {
             dbi_warn();
             next;
         }
         eval {
-            $sth->execute();
+            $sth->execute("$prefix%");
         };
         if ($@) {
             dbi_warn();
@@ -960,27 +1042,41 @@ sub get_tables {
 
 sub drop_tables {
     my ($dbh, $tables) = @_;
+    my ($table, $id);
     my $msg;
     my $sth;
 
     if (!$options{n}) {
 
-# If not running in test mode, drop the list of comma-seperated tables.
-# Treat any errors as non-fatal, but report on them.
+# If not running in test mode, drop the tables.  Initially this was done
+# by providing a comma-seperated list of tables, however I've changed this
+# to drop individual tables as I believe this is safer for larger runs.
+# Also implemented proper quoting and untainting.
 
-        eval {
-            $sth = $dbh->prepare("DROP TABLE ".(join", ", @{$tables}));
-        };
-        if ($@) {
-            dbi_warn();
-            return;
-        }
-        eval {
-            $sth->execute();
-        };
-        if ($@) {
-            dbi_warn();
-            return;
+        foreach $table (@{$tables}) {
+            eval {
+                $id = $dbh->quote_identifier($table);
+            };
+            if ($@) {
+                dbi_warn();
+                return;
+            }
+            if ($id =~ /^(`\w+`)$/) {
+                $id = $1;
+            }
+            else {
+                $msg = "WARNING: Ignoring invalid table name.\n";
+                print $msg if defined $options{v};
+                log_message($msg) if defined $options{v};
+                next;
+            }
+            eval {
+                $dbh->do("DROP TABLE $id");
+            };
+            if ($@) {
+                dbi_warn();
+                return;
+            }
         }
         $msg = "Tables dropped.\n";
         print $msg if defined $options{v};
