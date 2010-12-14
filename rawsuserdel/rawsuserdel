@@ -182,7 +182,7 @@ no warnings "File::Find";       # Don't care about warnings (like "can't stat")
 
 # Script version.
 
-our $VERSION = 1.0;
+our $VERSION = "1.0";
 
 # As recommended in Getopt::Std docs.
 
