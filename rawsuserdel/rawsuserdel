@@ -1053,6 +1053,10 @@ sub drop_tables {
 # to drop individual tables as I believe this is safer for larger runs.
 # Also implemented proper quoting and untainting.
 
+        $msg = "Dropping tables...\n";
+        print $msg if defined $options{v};
+        log_message($msg) if defined $lfh;
+
         foreach $table (@{$tables}) {
             eval {
                 $id = $dbh->quote_identifier($table);
@@ -1078,7 +1082,7 @@ sub drop_tables {
                 next;
             }
         }
-        $msg = "Table(s) dropped.\n";
+        $msg = "Tables dropped.\n";
         print $msg if defined $options{v};
         log_message($msg) if defined $lfh;
     }
