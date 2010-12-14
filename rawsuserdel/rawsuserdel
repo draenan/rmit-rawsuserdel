@@ -1,4 +1,4 @@
-/bin/echo "Make sure the #! value is correct!" ; exit;
+/bin/echo "Check that #! is set correctly!"; exit
 #!/usr/bin/perl -T
 # $Id$
 
@@ -182,7 +182,7 @@ no warnings "File::Find";       # Don't care about warnings (like "can't stat")
 
 # Script version.
 
-our $VERSION = 0.1;
+our $VERSION = 1.0;
 
 # As recommended in Getopt::Std docs.
 
