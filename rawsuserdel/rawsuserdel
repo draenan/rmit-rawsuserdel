@@ -1059,7 +1059,7 @@ sub drop_tables {
             };
             if ($@) {
                 dbi_warn();
-                return;
+                next;
             }
             if ($id =~ /^(`\w+`)$/) {
                 $id = $1;
@@ -1075,10 +1075,10 @@ sub drop_tables {
             };
             if ($@) {
                 dbi_warn();
-                return;
+                next;
             }
         }
-        $msg = "Tables dropped.\n";
+        $msg = "Table(s) dropped.\n";
         print $msg if defined $options{v};
         log_message($msg) if defined $lfh;
     }
