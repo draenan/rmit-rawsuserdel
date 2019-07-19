@@ -1,4 +1,3 @@
-/bin/echo "Check that #! is set correctly!"; exit
 #!/usr/bin/perl -T
 # $Id$
 
